@@ -1,0 +1,7 @@
+.venv
+*Zone.Identifier
+*credentials.json
+*.log
+*.pyc
+.zaphod_watch_state.json
+my-first-course/
