@@ -1,4 +1,4 @@
-# errors.py - NEW FILE
+# errors.py - Custom exceptions for Zaphod
 """
 Custom exception classes with improved error messages for Zaphod
 
@@ -8,7 +8,7 @@ All exceptions include:
 - Relevant context
 """
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 
 class ZaphodError(Exception):
@@ -90,7 +90,9 @@ class SyncError(ZaphodError):
     pass
 
 
+# ============================================================================
 # Specific error factory functions
+# ============================================================================
 
 def missing_course_id_error() -> ConfigurationError:
     """Create error for missing course ID"""
@@ -99,12 +101,15 @@ def missing_course_id_error() -> ConfigurationError:
         suggestion=(
             "Set COURSE_ID environment variable:\n"
             "  export COURSE_ID=12345\n\n"
+            "Or create zaphod.yaml:\n"
+            "  course_id: 12345\n\n"
             "Or create _course_metadata/defaults.json:\n"
             '  {"course_id": "12345"}'
         ),
         context={
             "checked_locations": [
                 "COURSE_ID environment variable",
+                "zaphod.yaml",
                 "_course_metadata/defaults.json"
             ]
         }
@@ -132,7 +137,7 @@ def missing_credentials_error(expected_path: Path) -> ConfigurationError:
 
 def invalid_frontmatter_error(
     file_path: Path,
-    missing_fields: list[str],
+    missing_fields: List[str],
     cause: Optional[Exception] = None
 ) -> FrontmatterError:
     """Create error for invalid frontmatter"""
@@ -180,7 +185,7 @@ def canvas_not_found_error(
 def media_file_not_found_error(
     filename: str,
     source_file: Path,
-    searched_paths: list[Path]
+    searched_paths: List[Path]
 ) -> FileNotFoundError:
     """Create error when media file cannot be found"""
     return FileNotFoundError(
@@ -200,7 +205,7 @@ def media_file_not_found_error(
 
 def rubric_validation_error(
     rubric_file: Path,
-    issues: list[str]
+    issues: List[str]
 ) -> ContentValidationError:
     """Create error for invalid rubric"""
     return ContentValidationError(
@@ -299,7 +304,7 @@ def api_rate_limit_error(
 def invalid_content_type_error(
     folder: Path,
     found_type: str,
-    valid_types: list[str]
+    valid_types: List[str]
 ) -> ContentValidationError:
     """Create error for invalid content type"""
     return ContentValidationError(

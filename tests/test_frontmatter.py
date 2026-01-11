@@ -17,6 +17,7 @@ from frontmatter_to_meta import (
     get_changed_files,
     iter_changed_content_dirs,
 )
+import frontmatter_to_meta
 
 
 class TestVariableInterpolation:
@@ -61,8 +62,11 @@ class TestVariableInterpolation:
 class TestIncludeInterpolation:
     """Tests for {{include:name}} functionality"""
     
-    def test_include_not_found(self, temp_course_dir, capsys):
+    def test_include_not_found(self, temp_course_dir, capsys, monkeypatch):
         """Missing include should print warning and leave placeholder"""
+        # Patch COURSE_ROOT to point to our temp directory
+        monkeypatch.setattr(frontmatter_to_meta, "COURSE_ROOT", temp_course_dir)
+        
         text = "Content: {{include:missing}}"
         result = interpolate_includes(text, temp_course_dir, {})
         
@@ -70,9 +74,12 @@ class TestIncludeInterpolation:
         assert "include 'missing' not found" in captured.out
         assert "{{include:missing}}" in result
     
-    def test_include_with_variables(self, temp_course_dir):
+    def test_include_with_variables(self, temp_course_dir, monkeypatch):
         """Include file with variables should interpolate"""
-        # Create include file
+        # Patch COURSE_ROOT to point to our temp directory
+        monkeypatch.setattr(frontmatter_to_meta, "COURSE_ROOT", temp_course_dir)
+        
+        # Create include file in the location the code actually looks
         includes_dir = temp_course_dir / "includes"
         includes_dir.mkdir()
         include_file = includes_dir / "header.md"
@@ -159,6 +166,9 @@ class TestIncrementalMode:
     
     def test_iter_changed_content_dirs(self, temp_course_dir, monkeypatch):
         """Should identify content directories from changed files"""
+        # Patch COURSE_ROOT to point to our temp directory
+        monkeypatch.setattr(frontmatter_to_meta, "COURSE_ROOT", temp_course_dir)
+        
         # Create folders
         page_folder = temp_course_dir / "pages" / "test.page"
         page_folder.mkdir(parents=True)

@@ -13,12 +13,13 @@ from sync_modules import (
     load_module_order,
     module_has_item,
 )
+import sync_modules  # Import module to patch its globals
 
 
 class TestModuleOrder:
     """Tests for module ordering"""
     
-    def test_load_module_order_dict_format(self, temp_course_dir):
+    def test_load_module_order_dict_format(self, temp_course_dir, monkeypatch):
         """Should parse dict format with 'modules' key"""
         import yaml
         
@@ -34,11 +35,14 @@ class TestModuleOrder:
         }
         order_file.write_text(yaml.dump(data))
         
+        # Patch the global MODULE_ORDER_PATH
+        monkeypatch.setattr(sync_modules, "MODULE_ORDER_PATH", order_file)
+        
         result = load_module_order()
         assert len(result) == 3
         assert result[0] == "Module 0: Start Here"
     
-    def test_load_module_order_list_format(self, temp_course_dir):
+    def test_load_module_order_list_format(self, temp_course_dir, monkeypatch):
         """Should parse bare list format"""
         import yaml
         
@@ -48,11 +52,17 @@ class TestModuleOrder:
         data = ["Module 1", "Module 2"]
         order_file.write_text(yaml.dump(data))
         
+        # Patch the global MODULE_ORDER_PATH
+        monkeypatch.setattr(sync_modules, "MODULE_ORDER_PATH", order_file)
+        
         result = load_module_order()
         assert len(result) == 2
     
-    def test_load_module_order_missing(self, temp_course_dir):
+    def test_load_module_order_missing(self, temp_course_dir, monkeypatch):
         """Missing file should return empty list"""
+        # Patch to a non-existent path
+        monkeypatch.setattr(sync_modules, "MODULE_ORDER_PATH", temp_course_dir / "nonexistent.yaml")
+        
         result = load_module_order()
         assert result == []
 

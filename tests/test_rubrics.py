@@ -57,5 +57,5 @@ class TestRubricLoading:
         rubric_path = tmp_path / "rubric.txt"
         rubric_path.write_text("invalid")
         
-        with pytest.raises(ValueError, match="Unsupported rubric file"):
+        with pytest.raises(RuntimeError, match="Unsupported rubric file"):
             load_rubric_spec(rubric_path)

@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -53,6 +54,29 @@ DEBOUNCE_SECONDS = 2.0
 
 # Prevent overlapping runs
 PIPELINE_RUNNING = False
+
+
+def find_python_executable() -> str:
+    """
+    Find the best Python executable to use.
+    
+    Priority:
+    1. .venv/bin/python in SCRIPT_DIR (if exists)
+    2. .venv/bin/python in COURSE_ROOT (if exists)  
+    3. The same Python running this script (sys.executable)
+    """
+    # Try venv in script directory
+    venv_python = SCRIPT_DIR / ".venv" / "bin" / "python"
+    if venv_python.exists():
+        return str(venv_python)
+    
+    # Try venv in course root
+    course_venv = COURSE_ROOT / ".venv" / "bin" / "python"
+    if course_venv.exists():
+        return str(course_venv)
+    
+    # Fall back to current Python
+    return sys.executable
 
 
 def fence(label: str):
@@ -146,7 +170,9 @@ def run_pipeline(changed_files: list[Path]):
 
     PIPELINE_RUNNING = True
     try:
-        python_exe = Path(__file__).parent / ".venv" / "bin" / "python"
+        # Find Python executable (with fallback)
+        python_exe = find_python_executable()
+        print(f"[watch] Using Python: {python_exe}")
 
         env = os.environ.copy()
         env.setdefault(
@@ -294,6 +320,10 @@ def main():
         raise SystemExit(f"pages/ directory not found under {COURSE_ROOT}")
 
     fence("WATCH")
+    
+    # Show which Python will be used
+    python_exe = find_python_executable()
+    print(f"[watch] Python executable: {python_exe}")
 
     observer = Observer()
     handler = MarkdownChangeHandler()
