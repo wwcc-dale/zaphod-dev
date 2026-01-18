@@ -1,11 +1,11 @@
 # Zaphod
 ##### A course authoring workspace that makes Canvas faster, safer, and easier to reuse than editing directly in the browser.
 
-Zaphod lets you build a Canvas course from a folder of plain‑text files instead of clicking around the Canvas editor. You write pages, assignments, quizzes, rubrics, and outcomes in simple text files, and Zaphod takes care of turning them into real Canvas content.
+Zaphod lets you build a Canvas course from a folder of plain-text files instead of clicking around the Canvas editor. You write pages, assignments, quizzes, rubrics, and outcomes in simple text files, and Zaphod takes care of turning them into real Canvas content.
 
 Each course lives in its own folder and acts as the “source of truth” for one Canvas shell. When you’re ready, Zaphod publishes everything to Canvas in a consistent, repeatable way.
 
-Quizzes are written in a compact plain‑text format (based on the NYIT Canvas Exam Converter), then turned into Classic quiz banks and quizzes automatically.
+Quizzes are written in a compact plain-text format (based on the NYIT Canvas Exam Converter), then turned into Classic quiz banks and quizzes automatically.
 
 ***
 
@@ -20,7 +20,7 @@ Working from plain text files gives you control and safety that are hard to get 
 
 #### Faster editing and reuse
 
-- Writing in markdown is often faster than fighting a rich‑text editor, especially for longer pages, code examples, or repeated patterns.
+- Writing in markdown is often faster than fighting a rich-text editor, especially for longer pages, code examples, or repeated patterns.
 - You can copy and reuse modules, pages, assignments, quizzes, and rubrics across terms or courses by copying files instead of rebuilding them by hand in Canvas.
 
 #### Automation and consistency
@@ -38,7 +38,7 @@ Working from plain text files gives you control and safety that are hard to get 
 #### Testing and safety
 
 - You can publish to a test or sandbox course first, review everything, and only then publish to a live section.
-- An automatic “watch and publish” script can monitor your files and run the full pipeline for you, reducing the chances of missing a page or leaving something half‑updated.
+- An automatic “watch and publish” script can monitor your files and run the full pipeline for you, reducing the chances of missing a page or leaving something half-updated.
 
 ---
 
@@ -51,63 +51,63 @@ A typical course directory looks like this:
 courses_root/
 └─ example-course/                 # one Canvas course
    ├─ pages/                       # all Canvas items (pages, assignments, files, links)
-   │  ├─ intro.page/               # Canvas Page + page-local media
-   │  │  ├─ index.md
-   │  │  ├─ intro-image.jpg        # image used only on this page (or symlink from assets/)
-   │  │  └─ intro-handout.pdf      # page-specific handout (or symlink)
-   │  ├─ example.assignment/       # Canvas Assignment + media
-   │  │  ├─ index.md
-   │  │  ├─ rubric.yaml            # optional rubric spec
-   │  │  ├─ sample-output.png      # assignment-specific image (or symlink)
-   │  │  └─ starter-files.zip      # assignment resources (or symlink)
-   │  ├─ syllabus.page/
-   │  │  └─ index.md
-   │  ├─ resources.link/           # external link item
-   │  │  └─ index.md
-   │  └─ handout.file/             # file item
-   │     └─ index.md
-   │
+   |  ├─ intro.page/               # Canvas Page + page-local media
+   |  |  ├─ index.md
+   |  |  ├─ intro-image.jpg        # image used only on this page (or symlink from assets/)
+   |  |  └─ intro-handout.pdf      # page-specific handout (or symlink)
+   |  ├─ example.assignment/       # Canvas Assignment + media
+   |  |  ├─ index.md
+   |  |  ├─ rubric.yaml            # optional rubric spec
+   |  |  ├─ sample-output.png      # assignment-specific image (or symlink)
+   |  |  └─ starter-files.zip      # assignment resources (or symlink)
+   |  ├─ syllabus.page/
+   |  |  └─ index.md
+   |  ├─ resources.link/           # external link item
+   |  |  └─ index.md
+   |  └─ handout.file/             # file item
+   |     └─ index.md
+   |
    ├─ quiz-banks/                  # Classic quiz definitions (NYIT-style)
-   │  ├─ week1.quiz.txt
-   │  └─ midterm.quiz.txt
-   │
+   |  ├─ week1.quiz.txt
+   |  └─ midterm.quiz.txt
+   |
    ├─ outcomes/                    # course-level learning outcomes
-   │  ├─ outcomes.yaml
-   │  └─ outcomes_import.csv       # generated for Canvas Outcomes import
-   │
+   |  ├─ outcomes.yaml
+   |  └─ outcomes_import.csv       # generated for Canvas Outcomes import
+   |
    ├─ modules/                     # optional module ordering & protection
-   │  └─ module_order.yaml
-   │
+   |  └─ module_order.yaml
+   |
    ├─ assets/                      # flat pool of course assets
-   │  ├─ intro-image.jpg
-   │  ├─ intro-handout.pdf
-   │  ├─ sample-output.png
-   │  ├─ starter-files.zip
-   │  └─ week1-video.mp4
-   │
+   |  ├─ intro-image.jpg
+   |  ├─ intro-handout.pdf
+   |  ├─ sample-output.png
+   |  ├─ starter-files.zip
+   |  └─ week1-video.mp4
+   |
    ├─ _course_metadata/            # internal course-level state/config
-   │  ├─ defaults.json             # defaults (e.g. course_id)
-   │  ├─ upload_cache.json         # Canvas file ID cache
-   │  └─ watch_state.json          # watcher bookkeeping
-   │
+   |  ├─ defaults.json             # defaults (e.g. course_id)
+   |  ├─ upload_cache.json         # Canvas file ID cache
+   |  └─ watch_state.json          # watcher bookkeeping
+   |
    ├─ zaphod/                      # Zaphod scripts for this repo
-   │  ├─ frontmatter_to_meta.py
-   │  ├─ publish_all.py
-   │  ├─ sync_modules.py
-   │  ├─ sync_clo_via_csv.py
-   │  ├─ sync_rubrics.py
-   │  ├─ sync_quiz_banks.py
-   │  ├─ prune_canvas_content.py
-   │  ├─ prune_quizzes.py
-   │  └─ watch_and_publish.py
-   │
+   |  ├─ frontmatter_to_meta.py
+   |  ├─ publish_all.py
+   |  ├─ sync_modules.py
+   |  ├─ sync_clo_via_csv.py
+   |  ├─ sync_rubrics.py
+   |  ├─ sync_quiz_banks.py
+   |  ├─ prune_canvas_content.py
+   |  ├─ prune_quizzes.py
+   |  └─ watch_and_publish.py
+   |
    └─ .venv/                       # optional Python virtualenv
 ```
 - `pages/*.page` and `pages/*.assignment` hold Canvas Pages and Assignments; `*.file` and `*.link` folders represent file/link items.
 - `quiz-banks/*.quiz.txt` holds Classic quiz definitions, one quiz per file.
-- `outcomes/outcomes.yaml` defines course‑level CLOs; `outcomes_import.csv` is generated for Canvas Outcomes import.
+- `outcomes/outcomes.yaml` defines course-level CLOs; `outcomes_import.csv` is generated for Canvas Outcomes import.
 - `modules/module_order.yaml` optionally defines the desired ordering and “protected” modules.
-- `assets/` contains course‑wide media and document assets that can be bulk‑uploaded to Canvas.
+- `assets/` contains course-wide media and document assets that can be bulk-uploaded to Canvas.
 - `_course_metadata` centralizes defaults, upload cache, and watcher state.
 
 ***
@@ -158,7 +158,7 @@ Instructions for the assignment go here.
 
 Required fields are `name` and `type`; `modules`, `published`, and assignment settings are optional but recommended.
 
-Frontmatter can also include Zaphod‑specific keys such as:
+Frontmatter can also include Zaphod-specific keys such as:
 
 - `modules`: list of Canvas module names to place this item into.
 - `indent`: indentation level for module items.
@@ -169,8 +169,8 @@ Frontmatter can also include Zaphod‑specific keys such as:
 
 `frontmatter_to_meta.py` turns `index.md` into two work files:[7]
 
-- `meta.json` – JSON metadata derived from frontmatter.
-- `source.md` – the body content only (with frontmatter removed), after variable and include expansion.
+- `meta.json` - JSON metadata derived from frontmatter.
+- `source.md` - the body content only (with frontmatter removed), after variable and include expansion.
 
 Example `meta.json`:
 
@@ -259,7 +259,7 @@ export COURSE_ID=123456
 
 Scripts and `canvasapi` use these to connect to Canvas and the correct course.
 
-Zaphod also uses `_course_metadata/defaults.json` to store per‑course defaults (including `course_id` if `COURSE_ID` is not set):[10]
+Zaphod also uses `_course_metadata/defaults.json` to store per-course defaults (including `course_id` if `COURSE_ID` is not set):[10]
 
 ```json
 {
@@ -294,7 +294,7 @@ Publishes pages, assignments, files, and external links to Canvas, and manages a
     - Uploading it to Canvas (or reusing cached IDs).
     - Injecting `<iframe src="{CANVAS_BASE_URL}/media_attachments_iframe/{file_id}">` markup.
   - Writes the modified `source.md` back to disk.
-- Provides `--assets-only` mode to bulk upload all asset files under `assets/` using a shared `_course_metadata/upload_cache.json` to avoid re‑uploads.
+- Provides `--assets-only` mode to bulk upload all asset files under `assets/` using a shared `_course_metadata/upload_cache.json` to avoid re-uploads.
 
 Over time, Zaphod is moving toward inlining this publish logic (replacing markdown2canvas) while keeping the same `meta.json`/`source.md` contract.
 
@@ -311,9 +311,9 @@ Ensures Canvas modules reflect the `modules` lists in `meta.json`.
 
 ### 5.4 `sync_clo_via_csv.py`
 
-Synchronizes course‑level learning outcomes (CLOs) from YAML into Canvas Outcomes via CSV import.
+Synchronizes course-level learning outcomes (CLOs) from YAML into Canvas Outcomes via CSV import.
 
-- Reads `outcomes/outcomes.yaml`, expecting a top‑level mapping with `course_outcomes` list.
+- Reads `outcomes/outcomes.yaml`, expecting a top-level mapping with `course_outcomes` list.
 - Builds `outcomes/outcomes_import.csv` following Canvas Outcomes CSV format, encoding rating levels as alternating `points,description` cells after a `ratings` header.
 - Uses `Course.import_outcome()` to import/update all course outcomes in one batch.
 - Honors incremental mode:
@@ -336,7 +336,7 @@ Converts `quiz-banks/*.quiz.txt` into Classic quizzes and questions.
 
 - Each `.quiz.txt` file:
   - May start with YAML frontmatter specifying quiz metadata (title, points_per_question, shuffle_answers, published, etc.).
-  - Contains a NYIT Canvas Exam Converter‑style question body (multiple‑choice, multiple‑answer, short answer, essay, file upload, true/false).
+  - Contains a NYIT Canvas Exam Converter-style question body (multiple-choice, multiple-answer, short answer, essay, file upload, true/false).
 - `sync_quiz_banks.py`:
   - In incremental mode: only processes `.quiz.txt` files listed in `ZAPHOD_CHANGED_FILES`; otherwise processes all under `quiz-banks/`.
   - Parses each file into `ParsedQuestion` objects, then creates a Classic Quiz via `course.create_quiz`.
@@ -354,11 +354,11 @@ Reconciles Canvas content/modules with the current repo and removes stale items.
 - Content pruning:
   - Deletes Canvas pages whose titles are not present locally.
   - Optionally deletes assignments not present locally (controlled by env/flags).
-- Module‑item pruning:
+- Module-item pruning:
   - For each module item, keeps only those whose module name appears in the local `modules` list for that object type; removes extra module items but leaves the underlying content.
 - Empty module pruning:
   - Deletes any modules with no items **except** those listed in `modules/module_order.yaml`.
-- Work‑file cleanup:
+- Work-file cleanup:
   - Removes generated work files under `pages/` such as `styled_source.md`, `extra_styled_source.*`, `result.html`, and `source.md` to keep the repo clean after publishing.
 
 ### 5.8 `prune_quizzes.py`
@@ -367,11 +367,11 @@ Cleans up Canvas quizzes and banks.
 
 - Deletes Classic quizzes with zero questions.
 - Deletes question banks whose names do not match any `quiz-banks/*.quiz.txt` filename stem.
-- Controlled by `ZAPHOD_PRUNE_APPLY` (true by default); in dry‑run mode logs what it would delete.
+- Controlled by `ZAPHOD_PRUNE_APPLY` (true by default); in dry-run mode logs what it would delete.
 
 ### 5.9 `watch_and_publish.py`
 
-Long‑running watchdog that drives the pipeline.
+Long-running watchdog that drives the pipeline.
 
 - Must be run from the course root (where `pages/` lives); exits if `pages/` is missing.
 - Watches for changes to:
@@ -384,7 +384,7 @@ Long‑running watchdog that drives the pipeline.
   - `last_run_ts`, `run_count`, `last_run_datetime`, `watch_stopped`.
 - On change (debounced):
   - Computes changed files since last run.
-  - Exports `ZAPHOD_CHANGED_FILES` (newline‑separated absolute paths) to child processes.
+  - Exports `ZAPHOD_CHANGED_FILES` (newline-separated absolute paths) to child processes.
   - Runs, in order:
     1. `frontmatter_to_meta.py`
     2. `publish_all.py`
@@ -398,19 +398,54 @@ Long‑running watchdog that drives the pipeline.
 
 ***
 
+## 5.10 `export_cartridge.py`
+
+Exports the entire course to IMS Common Cartridge 1.3 format for importing into other LMS platforms.
+
+- Creates a complete `.imscc` package containing:
+  - All pages as HTML web content
+  - Assignments with rubrics (CC extension format)
+  - Quizzes as QTI 1.2 assessments
+  - Learning outcomes
+  - Module structure
+  - Media assets
+
+- Usage:
+  ```bash
+  # Via CLI
+  zaphod export                           # Export full course
+  zaphod export --output course.imscc     # Custom output path
+  zaphod export --title "My Course"       # Set course title
+  
+  # Direct script
+  python export_cartridge.py --output my-course.imscc
+  ```
+
+- The export can be imported into:
+  - Canvas LMS
+  - Moodle
+  - Blackboard
+  - Brightspace (D2L)
+  - Sakai
+  - Any CC 1.3 compliant LMS
+
+This enables course portability and migration without needing Canvas API access.
+
+***
+
 ## 6. Credits
 
 Zaphod builds on ideas and tooling from:
 
 - The original [markdown2canvas](https://github.com/ofloveandhate/markdown2canvas) project by Silviana Amethyst et al.
 - The NYIT [CanvasExam Converter](https://site.nyit.edu/its/canvas_exam_converter) for its quiz text format.
-- GPT‑4o assistance via [Perplexity](https://www.perplexity.ai/) during design and refactoring.
+- GPT-4o assistance via [Perplexity](https://www.perplexity.ai/) during design and refactoring.
 
-Together, these move Zaphod toward a curriculum‑level pipeline where outcomes, topics, content, quizzes, and rubrics live in a coherent, version‑controlled text representation synchronized to Canvas.
+Together, these move Zaphod toward a curriculum-level pipeline where outcomes, topics, content, quizzes, and rubrics live in a coherent, version-controlled text representation synchronized to Canvas.
 
 ---
 ## 7. License
 
 &copy; 2026 Dale Chapman
-Zaphod is open‑source under the MIT License.
+Zaphod is open-source under the MIT License.
 See the `LICENSE` file in the repo root for full terms.

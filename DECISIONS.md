@@ -353,4 +353,46 @@ Big improvement. New users love it.
 
 **Outcome:**
 [How it's working]
-```
+```## Common Cartridge Export vs Canvas-Only
+**Date:** January 2026
+**Status:** Current
+
+**Context:**
+Users wanted to export courses for portability - to import into other Canvas instances without API access, or to migrate to other LMS platforms entirely.
+
+**Decision:** Add IMS Common Cartridge 1.3 export as a new command
+
+**Implementation:**
+- New script `export_cartridge.py` generates complete .imscc packages
+- CLI command `zaphod export` wraps the script
+- Supports full course export including:
+  - Pages as HTML web content
+  - Assignments with rubrics (CC extension format)
+  - Quizzes as QTI 1.2 assessments
+  - Learning outcomes
+  - Module structure
+  - Media assets
+
+**Rationale:**
+- **Standards-based:** CC 1.3 is widely supported across LMS platforms
+- **Complete course:** Unlike QTI-only, captures entire course structure
+- **No API required:** Export can be imported via LMS UI
+- **Portability:** Same package works on Canvas, Moodle, Blackboard, etc.
+- **Backward compatible:** Doesn't change existing Canvas sync workflow
+
+**Trade-offs:**
+- ✗ CC format doesn't support all Canvas-specific features (discussions, announcements)
+- ✗ QTI 1.2 has limitations vs Canvas's native quiz format
+- ✗ Rubric format is a Canvas extension, may not import perfectly elsewhere
+- ✓ But: Covers 90%+ of typical course content
+
+**Alternatives Considered:**
+- QTI-only export: Too limited (quizzes only)
+- Canvas course export API: Requires API access, proprietary format
+- Custom JSON format: Not portable to other LMS
+
+**Outcome:**
+Enables true course portability. Users can now:
+1. Export a course once
+2. Import into any CC-compliant LMS
+3. Or import into another Canvas instance without API credentials

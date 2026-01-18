@@ -26,7 +26,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Dict, Any, Set
-from config_utils import get_course_id
+from zaphod.config_utils import get_course_id
 
 from canvasapi import Canvas  # [web:261][web:264]
 

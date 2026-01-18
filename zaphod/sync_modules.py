@@ -23,6 +23,24 @@ Module ordering:
   - After syncing items, reorders modules to match that list first,
     then any remaining modules in name order.
 
+Module item ordering:
+
+  Items within a module are ordered by:
+  1. Explicit 'position' field in frontmatter (lowest number first)
+  2. Numeric prefix from folder name (e.g., 01-bake-a-cake -> position 1)
+  3. Items without prefix sort last, alphabetically by folder name
+
+  Examples:
+    - position: -1 in frontmatter -> sorts as (0, -1, name) [floats to top]
+    - position: 0 in frontmatter -> sorts as (0, 0, name)
+    - position: 5 in frontmatter -> sorts as (0, 5, name)
+    - 01-intro.page -> sorts as (1, 1, "01-intro.page")  
+    - 02-setup.page -> sorts as (1, 2, "02-setup.page")
+    - appendix.page -> sorts as (2, 0, "appendix.page") [last]
+
+  Negative positions are supported for floating items above numbered content:
+    position: -10  # appears before position: -1, which appears before 01-*
+
 Assumptions:
   - Run from the course root (where pages/ lives).
   - Env:
@@ -37,10 +55,11 @@ Assumptions:
 from pathlib import Path
 import json
 import os
-from config_utils import get_course_id
+import re
+from zaphod.config_utils import get_course_id
 from canvasapi import Canvas
 import yaml
-from errors import (
+from zaphod.errors import (
     canvas_not_found_error,
     ConfigurationError,
     CanvasAPIError,
@@ -67,14 +86,52 @@ def get_changed_files() -> list[Path]:
     return [Path(p) for p in raw.splitlines() if p.strip()]
 
 
+def get_folder_sort_key(folder: Path, meta: dict = None) -> tuple:
+    """
+    Generate a sort key for ordering content folders within modules.
+    
+    Priority:
+    1. Explicit 'position' in frontmatter/meta.json (lowest sort priority number)
+    2. Numeric prefix from folder name (e.g., 01-bake-a-cake -> 1)
+    3. No prefix - sorts last, alphabetically by folder name
+    
+    Returns a tuple for sorting: (priority_tier, position_or_prefix, folder_name)
+    """
+    # Check for explicit position in metadata
+    if meta is not None:
+        position = meta.get("position")
+        if position is not None:
+            try:
+                return (0, int(position), folder.name.lower())
+            except (ValueError, TypeError):
+                pass
+    
+    # Try to extract numeric prefix from folder name (e.g., "01-", "2-", "10-")
+    match = re.match(r'^(\d+)-', folder.name)
+    if match:
+        return (1, int(match.group(1)), folder.name.lower())
+    
+    # No prefix - sort last, alphabetically
+    return (2, 0, folder.name.lower())
+
+
 def iter_all_content_dirs():
     """
-    Existing behavior: yield every content folder under pages/
-    ending in one of the known extensions.
+    Yield every content folder under pages/ ending in one of the known extensions.
+    Folders are sorted by position/prefix for predictable module ordering.
     """
+    folders = []
     for ext in (".page", ".assignment", ".file", ".link"):
         for folder in PAGES_DIR.rglob(f"*{ext}"):
-            yield folder
+            folders.append(folder)
+    
+    # Sort by folder name prefix/position
+    # Note: We don't have meta loaded here, so we only use filename-based sorting
+    # Full sorting with meta.position happens in main() after loading meta
+    folders.sort(key=lambda f: get_folder_sort_key(f))
+    
+    for folder in folders:
+        yield folder
 
 
 def iter_changed_content_dirs(changed_files: list[Path]):
@@ -86,10 +143,12 @@ def iter_changed_content_dirs(changed_files: list[Path]):
     - Trigger on index.md, source.md, or meta.json changes.
     - Must live under pages/**.
     - Parent folder must end with .page / .assignment / .file / .link.
+    
+    Results are sorted by position/prefix for predictable module ordering.
     """
     exts = {".page", ".assignment", ".file", ".link"}
     relevant_names = {"index.md", "source.md", "meta.json"}
-    seen: set[Path] = set()
+    found: list[Path] = []
 
     for path in changed_files:
         if path.name not in relevant_names:
@@ -107,9 +166,14 @@ def iter_changed_content_dirs(changed_files: list[Path]):
         if folder.suffix not in exts:
             continue
 
-        if folder not in seen:
-            seen.add(folder)
-            yield folder
+        if folder not in found:
+            found.append(folder)
+    
+    # Sort by folder name prefix/position
+    found.sort(key=lambda f: get_folder_sort_key(f))
+    
+    for folder in found:
+        yield folder
 
 
 # ---------- Canvas helpers ----------
@@ -425,6 +489,86 @@ def apply_module_order(course, desired_order: list[str]):
         mod.edit(module={"position": idx})
 
 
+def reorder_module_items(course, content_dirs: list[Path]):
+    """
+    Reorder items within each module based on folder sort keys.
+    
+    This function:
+    1. Builds a mapping of module -> items with their sort keys
+    2. For each module, reorders items to match the desired order
+    
+    Sort priority:
+    1. Explicit 'position' in meta.json
+    2. Numeric prefix from folder name (01-, 02-, etc.)
+    3. Alphabetically by folder name (items without prefix come last)
+    """
+    # Build a mapping: module_name -> [(sort_key, item_title, folder)]
+    module_items_map: dict[str, list[tuple]] = {}
+    
+    for folder in content_dirs:
+        try:
+            meta = load_meta(folder)
+        except FileNotFoundError:
+            continue
+        
+        modules = meta.get("modules") or []
+        title = meta.get("name")
+        if not title or not modules:
+            continue
+        
+        sort_key = get_folder_sort_key(folder, meta)
+        
+        for mname in modules:
+            if mname not in module_items_map:
+                module_items_map[mname] = []
+            module_items_map[mname].append((sort_key, title, folder, meta))
+    
+    # For each module, get current items and reorder if needed
+    for module in course.get_modules():
+        mname = module.name
+        if mname not in module_items_map:
+            continue
+        
+        # Sort the desired items by sort key
+        desired_items = sorted(module_items_map[mname], key=lambda x: x[0])
+        desired_titles = [item[1] for item in desired_items]
+        
+        # Get current module items
+        current_items = list(module.get_module_items())
+        if not current_items:
+            continue
+        
+        # Build mapping of title -> item for items we care about
+        title_to_item = {}
+        for item in current_items:
+            item_title = getattr(item, "title", None)
+            if item_title:
+                title_to_item[item_title] = item
+        
+        # Check if reordering is needed by comparing current order to desired
+        current_managed_titles = [
+            getattr(item, "title", None) 
+            for item in current_items 
+            if getattr(item, "title", None) in desired_titles
+        ]
+        
+        if current_managed_titles == desired_titles:
+            # Already in correct order
+            continue
+        
+        print(f"[modules] Reordering items in module '{mname}'")
+        
+        # Reorder items: move each item to position 1 in reverse desired order
+        # This pushes them to the top in the correct sequence
+        for title in reversed(desired_titles):
+            if title in title_to_item:
+                item = title_to_item[title]
+                try:
+                    item.edit(module_item={"position": 1})
+                except Exception as e:
+                    print(f"[modules:warn] Failed to reorder '{title}' in '{mname}': {e}")
+
+
 # ---------- Main ----------
 
 def main():
@@ -472,6 +616,11 @@ def main():
                 sync_link(course, folder, meta)
             else:
                 print(f"[modules:warn] {folder.name}: unsupported type '{t}' in meta.json")
+        
+        # Reorder items within modules based on folder sort keys
+        # Use all content dirs for full reorder context, not just changed ones
+        all_content_dirs = list(iter_all_content_dirs())
+        reorder_module_items(course, all_content_dirs)
 
     # Apply desired module order if provided
     if desired_module_order:

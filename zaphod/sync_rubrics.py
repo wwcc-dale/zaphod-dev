@@ -15,10 +15,10 @@ For the current course (cwd):
 
 Extended behavior:
 
-- Supports course-level shared rubrics in rubrics/<name>.yaml|yml|json
+- Supports course-level shared rubrics in rubrics/<n>.yaml|yml|json
   referenced from assignment rubric.yaml via:
 
-    use_rubric: "<name>"
+    use_rubric: "<n>"
 
 - Supports reusable rubric rows in rubrics/rows/<identifier>.yaml|yml|json,
   referenced from criteria via:
@@ -48,10 +48,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import requests
 import yaml
-from config_utils import get_course_id
+from zaphod.config_utils import get_course_id
 from canvasapi import Canvas
 from canvasapi.course import Course
-from errors import (
+from zaphod.errors import (
     rubric_validation_error,
     CanvasAPIError,
 )
@@ -171,7 +171,7 @@ def find_assignment_by_name(course: Course, name: str):
 
 def load_shared_rubric(name: str) -> Dict[str, Any]:
     """
-    Load a shared rubric spec from rubrics/<name>.(yaml|yml|json).
+    Load a shared rubric spec from rubrics/<n>.(yaml|yml|json).
     """
     if not RUBRICS_DIR.exists():
         raise FileNotFoundError(f"No rubrics directory at {RUBRICS_DIR}")
@@ -276,35 +276,29 @@ def load_rubric_spec(path: Path) -> Dict[str, Any]:
 def build_rubric_payload(
     rubric: Dict[str, Any],
     assignment,
+    rubric_file: Path = None,
 ) -> Dict[str, Any]:
     """
-    Turn a rubric spec (YAML/JSON) into the form fields expected by
-    POST /api/v1/courses/:course_id/rubrics, associating it with an assignment.[web:52]
+    Turn a rubric spec (YAML/JSON) into Canvas API payload.
+    
+    Args:
+        rubric: The rubric specification dict
+        assignment: Canvas assignment object
+        rubric_file: Path to rubric file (for error messages)
     """
-    title = rubric.get("title")
-    if not title:
-        raise SystemExit("Rubric spec must define 'title'.")
-
-    free_form = bool(rubric.get("free_form_criterion_comments", False))
-
-def build_rubric_payload(
-    rubric: Dict[str, Any],
-    assignment,
-) -> Dict[str, Any]:
-    """
-    Turn a rubric spec (YAML/JSON) into Canvas API payload
-    """
+    rubric_file = rubric_file or Path("rubric.yaml")
+    
     title = rubric.get("title")
     if not title:
         raise rubric_validation_error(
-            rubric_file=Path("rubric.yaml"),  # Would be passed in
+            rubric_file=rubric_file,
             issues=["Missing 'title' field"]
         )
 
     criteria = rubric.get("criteria") or []
     if not criteria:
         raise rubric_validation_error(
-            rubric_file=Path("rubric.yaml"),
+            rubric_file=rubric_file,
             issues=["Missing or empty 'criteria' list"]
         )
 
@@ -330,13 +324,14 @@ def build_rubric_payload(
     
     if issues:
         raise rubric_validation_error(
-            rubric_file=Path("rubric.yaml"),
+            rubric_file=rubric_file,
             issues=issues
         )
 
     # Expand any {{rubric_row:...}} references
     criteria = expand_rubric_criteria(criteria)
 
+    free_form = bool(rubric.get("free_form_criterion_comments", False))
     assoc_cfg = rubric.get("association") or {}
 
     # Association is always to an Assignment in this script
@@ -401,7 +396,7 @@ def create_rubric_via_api(
     payload: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    POST /api/v1/courses/:course_id/rubrics using the provided payload.[web:52]
+    POST /api/v1/courses/:course_id/rubrics using the provided payload.
     """
     api_url, api_key = get_api_url_and_key()
     url = f"{api_url}/api/v1/courses/{course_id}/rubrics"
@@ -467,7 +462,7 @@ def process_assignment_folder(course: Course, folder: Path):
         return
 
     try:
-        payload = build_rubric_payload(rubric_spec, assignment)
+        payload = build_rubric_payload(rubric_spec, assignment, rubric_file)
     except Exception as e:
         print(f"[rubrics:err] {folder.name}: invalid rubric spec: {e}")
         return

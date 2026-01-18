@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""
+r"""
 # Zaphod
 # Copyright (c) 2026 Dale Chapman
 # Licensed under the MIT License. See LICENSE in the project root.
@@ -38,17 +38,17 @@ import yaml         # PyYAML for rubric-draft.yaml and topics formatting [web:39
 LOG_FORMAT = "%(message)s"
 
 LEVEL_ICONS = {
-    logging.DEBUG: "🔍",
-    logging.INFO: "✔️",
-    logging.WARNING: "⚠️",
-    logging.ERROR: "❌",
-    logging.CRITICAL: "💥",
+    logging.DEBUG: "ðŸ”",
+    logging.INFO: "âœ”ï¸",
+    logging.WARNING: "âš ï¸",
+    logging.ERROR: "âŒ",
+    logging.CRITICAL: "ðŸ’¥",
 }
 
 
 class IconLogFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        icon = LEVEL_ICONS.get(record.levelno, "✔️")
+        icon = LEVEL_ICONS.get(record.levelno, "âœ”ï¸")
         base = super().format(record)
         return f"{icon} {base}"
 

@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Dict, Any, List
 
 import yaml
-from config_utils import get_course_id
+from zaphod.config_utils import get_course_id
 from canvasapi import Canvas  # [web:49][web:92]
 
 

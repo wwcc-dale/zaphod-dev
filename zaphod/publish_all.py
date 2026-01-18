@@ -1,48 +1,46 @@
 #!/usr/bin/env python3
 """
-# Zaphod
-# Copyright (c) 2026 Dale Chapman
-# Licensed under the MIT License. See LICENSE in the project root.
-
 publish_all.py (Zaphod)
 
+Publish course content to Canvas.
+
+This script:
+1. Iterates over content folders (pages/*.page, *.assignment, *.link, *.file)
+2. Replaces {{video:...}} placeholders with Canvas media iframes
+3. Publishes content to Canvas via native Zaphod classes
+
+No longer depends on markdown2canvas - uses canvasapi directly.
 """
+
 from pathlib import Path
 import os
 import json
 import re
 import argparse
+import hashlib
 
-import markdown2canvas as mc
-from markdown2canvas import canvas_objects
-from markdown2canvas.setup_functions import make_canvas_api_obj
-
-# Import get_course_id from your shared config_utils
-from config_utils import get_course_id
-from errors import (
+# Zaphod modules
+from zaphod.canvas_client import make_canvas_api_obj, get_canvas_base_url
+from zaphod.canvas_publish import make_zaphod_obj, ZaphodPage, ZaphodAssignment
+from zaphod.config_utils import get_course_id
+from zaphod.errors import (
     media_file_not_found_error,
     CanvasAPIError,
     SyncError,
 )
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-SHARED_ROOT = SCRIPT_DIR.parent
-COURSES_ROOT = SHARED_ROOT.parent
-COURSE_ROOT = Path.cwd()          # always "current course"
-PAGES_DIR = COURSE_ROOT / "pages" # where applicable
-ASSETS_DIR = COURSE_ROOT / "assets" # course assets folder
+
+# Paths relative to course root (cwd)
+COURSE_ROOT = Path.cwd()
+PAGES_DIR = COURSE_ROOT / "pages"
+ASSETS_DIR = COURSE_ROOT / "assets"
 METADATA_DIR = COURSE_ROOT / "_course_metadata"
 UPLOAD_CACHE_FILE = METADATA_DIR / "upload_cache.json"
 
-# Optional: disable buggy module handling inside markdown2canvas
-def _no_modules(self, course):
-    return None
 
-canvas_objects.Page.ensure_in_modules = _no_modules
-canvas_objects.Assignment.ensure_in_modules = _no_modules
-canvas_objects.Link.ensure_in_modules = _no_modules
-canvas_objects.File.ensure_in_modules = _no_modules
-
+# =============================================================================
+# Upload cache helpers
+# =============================================================================
 
 def load_upload_cache() -> dict:
     """Load the cache of previously uploaded files."""
@@ -57,12 +55,15 @@ def load_upload_cache() -> dict:
 def save_upload_cache(cache: dict):
     """Save the upload cache to disk."""
     try:
-        # Ensure the metadata directory exists
         METADATA_DIR.mkdir(parents=True, exist_ok=True)
         UPLOAD_CACHE_FILE.write_text(json.dumps(cache, indent=2))
     except Exception as e:
         print(f"[cache:warn] Failed to save cache: {e}")
 
+
+# =============================================================================
+# Changed files helpers (for incremental mode)
+# =============================================================================
 
 def get_changed_files() -> list[Path]:
     """
@@ -77,8 +78,7 @@ def get_changed_files() -> list[Path]:
 
 def iter_all_content_dirs():
     """
-    Existing behavior: yield every content folder under pages/
-    ending in one of the known extensions.
+    Yield every content folder under pages/ ending in a known extension.
     """
     for ext in [".page", ".assignment", ".link", ".file"]:
         for folder in PAGES_DIR.rglob(f"*{ext}"):
@@ -87,13 +87,7 @@ def iter_all_content_dirs():
 
 def iter_changed_content_dirs(changed_files: list[Path]):
     """
-    From changed files, yield the content folders that should be
-    published by this script.
-
-    Rules:
-    - Only care about index.md (or source.md if you want).
-    - Must live under pages/**.
-    - Parent folder must end with .page / .assignment / .link / .file.
+    From changed files, yield the content folders that should be published.
     """
     exts = {".page", ".assignment", ".link", ".file"}
     seen: set[Path] = set()
@@ -120,146 +114,18 @@ def iter_changed_content_dirs(changed_files: list[Path]):
             yield folder
 
 
-def find_all_asset_files() -> list[Path]:
-    """
-    Find all asset files in the assets directory.
-    Returns list of Path objects for uploadable files.
-    Excludes system files and metadata files.
-    """
-    if not ASSETS_DIR.exists():
-        return []
-
-    # Common asset extensions to upload
-    asset_extensions = {
-        # Videos
-        '.mp4', '.mov', '.avi', '.webm', '.mkv', '.m4v', '.flv', '.wmv',
-        # Images
-        '.jpg', '.jpeg', '.png', '.gif', '.svg', '.bmp', '.webp', '.ico', '.tiff',
-        # Documents
-        '.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt',
-        # Archives
-        '.zip', '.tar', '.gz', '.rar', '.7z',
-        # Spreadsheets
-        '.xls', '.xlsx', '.csv', '.ods',
-        # Presentations
-        '.ppt', '.pptx', '.odp',
-        # Audio
-        '.mp3', '.wav', '.ogg', '.m4a', '.flac',
-        # Other common formats
-        '.json', '.xml', '.yaml', '.yml'
-    }
-
-    # Files to exclude
-    exclude_patterns = {
-        ':Zone.Identifier',  # Windows metadata
-        '.DS_Store',         # macOS metadata
-        'Thumbs.db',         # Windows thumbnails
-        '.gitkeep',          # Git placeholder
-    }
-
-    asset_files = []
-
-    for file_path in ASSETS_DIR.rglob('*'):
-        if not file_path.is_file():
-            continue
-
-        # Check if file should be excluded
-        if any(pattern in file_path.name for pattern in exclude_patterns):
-            continue
-
-        # Check if extension is in our list (case-insensitive)
-        if file_path.suffix.lower() in asset_extensions:
-            asset_files.append(file_path)
-
-    return asset_files
-
-
-def find_video_references_in_content() -> dict[str, list[Path]]:
-    """
-    Scan all .page and .assignment folders for video files referenced in source.md.
-    Returns dict mapping filename to list of folders that reference it.
-    """
-    VIDEO_RE = re.compile(r"\{\{video:\s*\"?([^}\"]+?)\"?\s*\}\}")
-    references = {}
-
-    for ext in [".page", ".assignment"]:
-        for folder in PAGES_DIR.rglob(f"*{ext}"):
-            source_md = folder / "source.md"
-            if source_md.is_file():
-                text = source_md.read_text(encoding="utf-8")
-                matches = VIDEO_RE.findall(text)
-                for filename in matches:
-                    filename = filename.strip()
-                    if filename not in references:
-                        references[filename] = []
-                    references[filename].append(folder)
-
-    return references
-
-
-def make_mc_obj(path: Path):
-    s = str(path)
-    if s.endswith(".page"):
-        return mc.Page(s)
-    if s.endswith(".assignment"):
-        return mc.Assignment(s)
-    if s.endswith(".link"):
-        return mc.Link(s)
-    if s.endswith(".file"):
-        return mc.File(s)
-    raise ValueError(f"Unknown type for {s}")
-
+# =============================================================================
+# Video placeholder handling
+# =============================================================================
 
 # {{video:filename}} regex (with optional quotes)
 VIDEO_RE = re.compile(r"\{\{video:\s*\"?([^}\"]+?)\"?\s*\}\}")
 
 
-def upload_file_to_canvas(course, file_path: Path, cache: dict):
-    """
-    Upload a file to Canvas and return the File object.
-    Uses cache to avoid re-uploading.
-    """
-    filename = file_path.name
-    cache_key = f"{course.id}:{filename}"
-
-    # 1) Check cache first
-    if cache_key in cache:
-        try:
-            file_id = cache[cache_key]
-            return course.get_file(file_id)
-        except Exception as e:
-            print(f"[cache:warn] Cached file {filename} (id={file_id}) not found, will re-upload: {e}")
-            del cache[cache_key]
-
-    # 2) Search existing files by name
-    for f in course.get_files(search_term=filename):
-        if f.display_name == filename or f.filename == filename:
-            cache[cache_key] = f.id
-            return f
-
-    # 3) Upload from local disk
-    if not file_path.is_file():
-        raise FileNotFoundError(f"File not found: {file_path}")
-
-    print(f"[upload] Uploading {filename}...")
-    success, resp = course.upload(str(file_path))
-    if not success:
-        raise RuntimeError(f"Upload failed for {file_path}: {resp}")
-
-    file_id = resp.get("id")
-    if not file_id:
-        raise RuntimeError(f"No file id in upload response for {file_path}: {resp}")
-
-    # Cache the uploaded file
-    cache[cache_key] = file_id
-
-    return course.get_file(file_id)
-
-
 def get_or_upload_video_file(course, folder: Path, filename: str, cache: dict):
     """
     Return a canvasapi File object for `filename` in this course.
-    First tries to find in cache/Canvas, then looks in assets folder or content folder.
+    First tries cache/Canvas, then looks in assets folder or content folder.
     """
     cache_key = f"{course.id}:{filename}"
 
@@ -279,7 +145,6 @@ def get_or_upload_video_file(course, folder: Path, filename: str, cache: dict):
                 cache[cache_key] = f.id
                 return f
     except Exception as e:
-        # BETTER ERROR: API error with context
         raise CanvasAPIError(
             message="Failed to search for existing files in Canvas",
             suggestion="Check your Canvas API credentials and network connection",
@@ -291,7 +156,7 @@ def get_or_upload_video_file(course, folder: Path, filename: str, cache: dict):
             cause=e
         )
 
-    # 3) Look for file in assets directory first, then in content folder
+    # 3) Look for file locally: assets/ first, then content folder
     local_path = None
     searched_paths = []
     
@@ -308,43 +173,32 @@ def get_or_upload_video_file(course, folder: Path, filename: str, cache: dict):
             local_path = content_path
 
     if not local_path:
-        # BETTER ERROR: Show where we looked
         raise media_file_not_found_error(
             filename=filename,
             source_file=folder / "index.md",
             searched_paths=searched_paths
         )
 
-    # Upload via Canvas API
+    # 4) Upload to Canvas
     print(f"[upload] Uploading {filename} from {local_path.parent.name}/...")
     try:
         success, resp = course.upload(str(local_path))
         if not success:
             raise SyncError(
                 message=f"Canvas upload failed for {filename}",
-                suggestion=(
-                    "Possible issues:\n"
-                    "  - File too large (Canvas has size limits)\n"
-                    "  - Insufficient permissions\n"
-                    "  - Network timeout\n\n"
-                    "Try:\n"
-                    "  - Check file size\n"
-                    "  - Verify Canvas permissions\n"
-                    "  - Retry the sync"
-                ),
+                suggestion="Check file size, permissions, and network connection",
                 context={
                     "file": filename,
                     "size_mb": local_path.stat().st_size / (1024 * 1024),
                     "response": str(resp)
                 }
             )
+    except SyncError:
+        raise
     except Exception as e:
         raise SyncError(
             message=f"Error uploading {filename}",
-            context={
-                "file": str(local_path),
-                "course_id": course.id
-            },
+            context={"file": str(local_path), "course_id": course.id},
             cause=e
         )
 
@@ -352,75 +206,378 @@ def get_or_upload_video_file(course, folder: Path, filename: str, cache: dict):
     if not file_id:
         raise SyncError(
             message=f"Upload succeeded but no file ID returned for {filename}",
-            suggestion="This is unusual - check Canvas Files to see if upload succeeded",
+            suggestion="Check Canvas Files to see if upload succeeded",
             context={"response": resp}
         )
 
-    # Cache the uploaded file
     cache[cache_key] = file_id
     return course.get_file(file_id)
 
 
 def replace_video_placeholders(text: str, course, folder: Path, canvas_base_url: str, cache: dict) -> str:
     """
-    Replace {{video:filename}} or {{video:"filename with spaces"}} with a Canvas media-attachment iframe.
+    Replace {{video:filename}} with Canvas media-attachment iframe.
+    
+    Includes data-zaphod-video attribute for round-trip preservation.
     """
     def replace(match):
-        raw = match.group(1).strip()
+        original_token = match.group(0)  # e.g., {{video:"intro.mp4"}}
+        raw = match.group(1).strip()     # e.g., intro.mp4
+        
         try:
             f = get_or_upload_video_file(course, folder, raw, cache)
         except Exception as e:
             print(f"[publish:warn] {folder.name}: video '{raw}': {e}")
-            return match.group(0)
+            return original_token  # Leave placeholder if upload fails
 
-        # Use Canvas media_attachments_iframe URL
+        # Canvas media iframe URL
         src = f"{canvas_base_url}/media_attachments_iframe/{f.id}"
+        
+        # Escape the original token for HTML attribute
+        escaped_token = original_token.replace('"', '&quot;')
 
         return (
-            f'<iframe style="width: 480px; height: 300px; display: inline-block;" '
+            f'<iframe style="width: 640px; height: 360px; display: inline-block;" '
             f'title="Video player for {f.display_name}" '
             f'data-media-type="video" '
+            f'data-zaphod-video="{escaped_token}" '
             f'src="{src}" '
             f'loading="lazy" '
             f'allowfullscreen="allowfullscreen" '
-            f'allow="fullscreen"></iframe>'
+            f'allow="fullscreen" '
+            f'frameborder="0"></iframe>'
         )
 
-    result = VIDEO_RE.sub(replace, text)
-    print(f"[debug] Final text length: {len(result)}")
-    print(f"[debug] Final text contains media_attachments_iframe: {'media_attachments_iframe' in result}")
-    return result
+    return VIDEO_RE.sub(replace, text)
 
 
-def bulk_upload_assets(course, canvas_base_url: str, cache: dict):
+# =============================================================================
+# Local asset reference handling (images, PDFs, etc. in markdown)
+# =============================================================================
+
+# Patterns to match local file references in markdown
+# Markdown image: ![alt](path) or ![alt](path "title")
+MD_IMAGE_RE = re.compile(r'!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)')
+
+# Markdown link: [text](path) or [text](path "title")  
+MD_LINK_RE = re.compile(r'\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)')
+
+# HTML img tag: <img src="path" ...>
+HTML_IMG_RE = re.compile(r'<img\s+[^>]*src=["\']([^"\']+)["\'][^>]*>', re.IGNORECASE)
+
+# HTML anchor with href to local file: <a href="path" ...>
+HTML_LINK_RE = re.compile(r'<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>', re.IGNORECASE)
+
+# File extensions we consider local assets (not URLs)
+LOCAL_ASSET_EXTENSIONS = {
+    # Images
+    '.png', '.jpg', '.jpeg', '.gif', '.svg', '.bmp', '.webp', '.ico', '.tiff',
+    # Documents
+    '.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt',
+    # Spreadsheets
+    '.xls', '.xlsx', '.csv', '.ods',
+    # Presentations
+    '.ppt', '.pptx', '.odp',
+    # Archives
+    '.zip', '.tar', '.gz', '.rar', '.7z',
+    # Audio (non-video)
+    '.mp3', '.wav', '.ogg', '.m4a', '.flac',
+    # Other
+    '.json', '.xml', '.yaml', '.yml', '.html', '.htm',
+}
+
+
+def is_local_asset_reference(path_str: str) -> bool:
     """
-    Bulk upload all asset files found in assets directory.
-    Uploads videos, images, PDFs, zip files, and other common asset types.
+    Determine if a path string is a local asset reference (not a URL or anchor).
     """
+    # Skip URLs
+    if path_str.startswith(('http://', 'https://', '//', 'data:')):
+        return False
+    
+    # Skip anchors
+    if path_str.startswith('#'):
+        return False
+    
+    # Skip Canvas file URLs (already processed)
+    if '/files/' in path_str or '/courses/' in path_str:
+        return False
+    
+    # Check if it has a recognized asset extension
+    path_lower = path_str.lower()
+    return any(path_lower.endswith(ext) for ext in LOCAL_ASSET_EXTENSIONS)
+
+
+def find_local_asset(folder: Path, filename: str) -> Path | None:
+    """
+    Find a local asset file, checking:
+    1. The content folder itself
+    2. The global assets/ directory
+    
+    Returns the Path if found, None otherwise.
+    """
+    # Strip any leading ./ or relative path components
+    clean_name = Path(filename).name
+    
+    # Check content folder first
+    local_path = folder / clean_name
+    if local_path.is_file():
+        return local_path
+    
+    # Also try the exact relative path from the folder
+    relative_path = folder / filename
+    if relative_path.is_file():
+        return relative_path
+    
+    # Check global assets directory
+    if ASSETS_DIR.exists():
+        asset_path = ASSETS_DIR / clean_name
+        if asset_path.is_file():
+            return asset_path
+    
+    return None
+
+
+def get_or_upload_local_asset(course, folder: Path, filename: str, cache: dict) -> str | None:
+    """
+    Upload a local asset to Canvas and return its download URL.
+    
+    Uses content hash in cache key to handle:
+    - Same filename in different locations (assets/ vs page folder)
+    - Updated files with the same name
+    
+    Returns:
+        Canvas file download URL, or None if file not found/upload failed
+    """
+    # Find the local file
+    local_path = find_local_asset(folder, filename)
+    if not local_path:
+        print(f"[assets:warn] Local asset not found: {filename}")
+        return None
+    
+    actual_filename = local_path.name
+    
+    # Use content hash to uniquely identify files
+    # This handles same filename in different locations + file updates
+    content_hash = hashlib.md5(local_path.read_bytes()).hexdigest()[:12]
+    cache_key = f"{course.id}:{actual_filename}:{content_hash}"
+    
+    # Check cache first
+    if cache_key in cache:
+        try:
+            file_id = cache[cache_key]
+            canvas_file = course.get_file(file_id)
+            # Return the download URL
+            return canvas_file.url
+        except Exception as e:
+            print(f"[assets:warn] Cached file {actual_filename} not found, re-uploading: {e}")
+            del cache[cache_key]
+    
+    # Note: We skip searching Canvas by filename since content hash means
+    # we want this specific version of the file. If hash changed, re-upload.
+    
+    # Upload the file
+    print(f"[assets] Uploading {actual_filename} from {local_path.parent.name}/...")
+    try:
+        success, resp = course.upload(str(local_path))
+        if not success:
+            print(f"[assets:err] Upload failed for {actual_filename}: {resp}")
+            return None
+        
+        file_id = resp.get("id")
+        if not file_id:
+            print(f"[assets:err] No file ID returned for {actual_filename}")
+            return None
+        
+        cache[cache_key] = file_id
+        canvas_file = course.get_file(file_id)
+        print(f"[assets] Uploaded {actual_filename} (id={file_id}, hash={content_hash})")
+        return canvas_file.url
+        
+    except Exception as e:
+        print(f"[assets:err] Error uploading {actual_filename}: {e}")
+        return None
+
+
+def replace_local_asset_references(text: str, course, folder: Path, cache: dict) -> str:
+    """
+    Find local asset references in markdown/HTML and replace with Canvas URLs.
+    
+    Handles:
+    - Markdown images: ![alt](local.png)
+    - Markdown links: [text](document.pdf)
+    - HTML img tags: <img src="local.png">
+    - HTML anchor tags: <a href="document.pdf">
+    
+    Only processes references that:
+    - Are not URLs (http://, https://, //)
+    - Have recognized asset extensions
+    - Can be found locally (in folder or assets/)
+    """
+    # Track which files we've processed to avoid duplicate uploads
+    processed_files: dict[str, str] = {}  # original_ref -> canvas_url
+    
+    def get_canvas_url(original_ref: str) -> str | None:
+        """Get Canvas URL for a reference, using cache to avoid re-processing."""
+        if original_ref in processed_files:
+            return processed_files[original_ref]
+        
+        if not is_local_asset_reference(original_ref):
+            return None
+        
+        canvas_url = get_or_upload_local_asset(course, folder, original_ref, cache)
+        if canvas_url:
+            processed_files[original_ref] = canvas_url
+        return canvas_url
+    
+    # Process markdown images: ![alt](path)
+    def replace_md_image(match):
+        alt_text = match.group(1)
+        file_ref = match.group(2)
+        
+        canvas_url = get_canvas_url(file_ref)
+        if canvas_url:
+            return f'![{alt_text}]({canvas_url})'
+        return match.group(0)  # Keep original if not found
+    
+    text = MD_IMAGE_RE.sub(replace_md_image, text)
+    
+    # Process markdown links: [text](path) - only for asset files
+    def replace_md_link(match):
+        link_text = match.group(1)
+        file_ref = match.group(2)
+        
+        canvas_url = get_canvas_url(file_ref)
+        if canvas_url:
+            return f'[{link_text}]({canvas_url})'
+        return match.group(0)
+    
+    text = MD_LINK_RE.sub(replace_md_link, text)
+    
+    # Process HTML img tags: <img src="path">
+    def replace_html_img(match):
+        full_tag = match.group(0)
+        file_ref = match.group(1)
+        
+        canvas_url = get_canvas_url(file_ref)
+        if canvas_url:
+            return full_tag.replace(file_ref, canvas_url)
+        return full_tag
+    
+    text = HTML_IMG_RE.sub(replace_html_img, text)
+    
+    # Process HTML anchor tags: <a href="path"> - only for asset files
+    def replace_html_link(match):
+        full_tag = match.group(0)
+        file_ref = match.group(1)
+        
+        canvas_url = get_canvas_url(file_ref)
+        if canvas_url:
+            return full_tag.replace(file_ref, canvas_url)
+        return full_tag
+    
+    text = HTML_LINK_RE.sub(replace_html_link, text)
+    
+    return text
+
+
+# =============================================================================
+# Asset bulk upload
+# =============================================================================
+
+def find_all_asset_files() -> list[Path]:
+    """Find all uploadable asset files in the assets directory."""
+    if not ASSETS_DIR.exists():
+        return []
+
+    asset_extensions = {
+        # Videos
+        '.mp4', '.mov', '.avi', '.webm', '.mkv', '.m4v', '.flv', '.wmv',
+        # Images
+        '.jpg', '.jpeg', '.png', '.gif', '.svg', '.bmp', '.webp', '.ico', '.tiff',
+        # Documents
+        '.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt',
+        # Archives
+        '.zip', '.tar', '.gz', '.rar', '.7z',
+        # Spreadsheets
+        '.xls', '.xlsx', '.csv', '.ods',
+        # Presentations
+        '.ppt', '.pptx', '.odp',
+        # Audio
+        '.mp3', '.wav', '.ogg', '.m4a', '.flac',
+        # Other
+        '.json', '.xml', '.yaml', '.yml'
+    }
+
+    exclude_patterns = {
+        ':Zone.Identifier', '.DS_Store', 'Thumbs.db', '.gitkeep',
+    }
+
+    asset_files = []
+    for file_path in ASSETS_DIR.rglob('*'):
+        if not file_path.is_file():
+            continue
+        if any(pattern in file_path.name for pattern in exclude_patterns):
+            continue
+        if file_path.suffix.lower() in asset_extensions:
+            asset_files.append(file_path)
+
+    return asset_files
+
+
+def upload_file_to_canvas(course, file_path: Path, cache: dict):
+    """Upload a file to Canvas, using cache to avoid re-uploads."""
+    filename = file_path.name
+    cache_key = f"{course.id}:{filename}"
+
+    if cache_key in cache:
+        try:
+            file_id = cache[cache_key]
+            return course.get_file(file_id)
+        except Exception:
+            del cache[cache_key]
+
+    for f in course.get_files(search_term=filename):
+        if f.display_name == filename or f.filename == filename:
+            cache[cache_key] = f.id
+            return f
+
+    if not file_path.is_file():
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    print(f"[upload] Uploading {filename}...")
+    success, resp = course.upload(str(file_path))
+    if not success:
+        raise RuntimeError(f"Upload failed for {file_path}: {resp}")
+
+    file_id = resp.get("id")
+    if not file_id:
+        raise RuntimeError(f"No file id in upload response for {file_path}")
+
+    cache[cache_key] = file_id
+    return course.get_file(file_id)
+
+
+def bulk_upload_assets(course, cache: dict):
+    """Bulk upload all asset files."""
     print("[bulk-upload] Scanning for asset files...")
 
-    # Get all assets from assets directory
     asset_files = find_all_asset_files()
-
     if not asset_files:
         print("[bulk-upload] No asset files found in assets/ directory.")
         return
 
-    # Group files by type for better reporting
+    # Group by extension for reporting
     file_types = {}
     for file_path in asset_files:
         ext = file_path.suffix.lower()
-        if ext not in file_types:
-            file_types[ext] = []
-        file_types[ext].append(file_path)
+        file_types.setdefault(ext, []).append(file_path)
 
     print(f"[bulk-upload] Found {len(asset_files)} asset file(s):")
     for ext, files in sorted(file_types.items()):
         print(f"  {ext}: {len(files)} file(s)")
 
-    uploaded = 0
-    skipped = 0
-    failed = 0
+    uploaded = skipped = failed = 0
 
     for file_path in sorted(asset_files):
         filename = file_path.name
@@ -442,78 +599,91 @@ def bulk_upload_assets(course, canvas_base_url: str, cache: dict):
     save_upload_cache(cache)
 
 
+# =============================================================================
+# Main
+# =============================================================================
+
 def main():
     parser = argparse.ArgumentParser(description="Publish Canvas course content")
     parser.add_argument(
         "--assets-only",
         action="store_true",
-        help="Only upload asset files (videos, images, PDFs, etc.) without publishing content"
+        help="Only upload asset files, skip content publishing"
     )
     args = parser.parse_args()
 
     if not PAGES_DIR.exists():
         raise SystemExit(f"No pages directory at {PAGES_DIR}")
 
-    # Set up Canvas API
+    # Set up Canvas API using native Zaphod client
     canvas = make_canvas_api_obj()
-    CANVAS_BASE_URL = os.environ.get("CANVAS_BASE_URL", "https://canvas.instructure.com")
+    canvas_base_url = get_canvas_base_url()
 
-    # Get the single course ID for this course
+    # Get course ID
     course_id = get_course_id(course_dir=COURSE_ROOT)
     if course_id is None:
         raise SystemExit("[publish] Cannot determine Canvas course ID; aborting.")
 
     course = canvas.get_course(course_id)
+    print(f"[publish] Publishing to course: {course.name} (ID {course_id})")
 
     # Load upload cache
     cache = load_upload_cache()
 
     # Handle assets-only mode
     if args.assets_only:
-        bulk_upload_assets(course, CANVAS_BASE_URL, cache)
+        bulk_upload_assets(course, cache)
         return
 
-    # Normal publish mode
+    # Determine which content to publish
     changed_files = get_changed_files()
 
     if changed_files:
-        # Incremental mode: only publish content dirs related to changed files
         content_dirs = list(iter_changed_content_dirs(changed_files))
         if not content_dirs:
             print("[publish] No relevant changed files; nothing to publish.")
             return
     else:
-        # Full mode: no env var => publish everything (existing behavior)
         content_dirs = list(iter_all_content_dirs())
 
+    # Publish each content folder
     for d in content_dirs:
         try:
-            obj = make_mc_obj(d)
-            print(f"[debug] Processing {d.name} as {type(obj).__name__}")
+            # Create Zaphod content object
+            obj = make_zaphod_obj(d)
+            print(f"[publish] Processing {d.name} as {type(obj).__name__}")
 
-            # Only Pages and Assignments have source.md
-            if isinstance(obj, (mc.Page, mc.Assignment)):
+            # For Pages and Assignments: process placeholders and local assets
+            if isinstance(obj, (ZaphodPage, ZaphodAssignment)):
                 source_md = d / "source.md"
                 if source_md.is_file():
                     text = source_md.read_text(encoding="utf-8")
-                    print(f"[debug] {d.name}: read source.md ({len(text)} chars)")
-                    text = replace_video_placeholders(text, course, d, CANVAS_BASE_URL, cache)
-                    print(f"[debug] {d.name}: after video replacement ({len(text)} chars)")
+                    
+                    # 1. Replace {{video:...}} placeholders
+                    text = replace_video_placeholders(text, course, d, canvas_base_url, cache)
+                    
+                    # 2. Upload and rewrite local asset references (images, PDFs, etc.)
+                    text = replace_local_asset_references(text, course, d, cache)
+                    
                     source_md.write_text(text, encoding="utf-8")
-                    print(f"[debug] {d.name}: wrote modified source.md")
-                else:
-                    print(f"[debug] {d.name}: source.md not found")
+                    
+                    # Reload the object so it picks up the modified source
+                    obj = make_zaphod_obj(d)
 
+            # Publish to Canvas
             obj.publish(course, overwrite=True)
             print(f"[✓ publish] {d.name}")
+            
         except Exception as e:
             print(f"[publish:err] {d.name}: {type(e).__name__}: {e}")
             import traceback
             traceback.print_exc()
+        
         print()
 
-    # Save cache after publishing
+    # Save cache
     save_upload_cache(cache)
+    print("[publish] Done.")
 
 
 if __name__ == "__main__":

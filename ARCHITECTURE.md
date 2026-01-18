@@ -27,21 +27,21 @@ Zaphod is a **local-first course authoring workspace** that makes Canvas LMS cou
 ```
 course/
 ├── pages/                      # Content items
-│   ├── *.page/                # Canvas Pages
-│   ├── *.assignment/          # Canvas Assignments (with optional rubric.yaml)
-│   ├── *.link/                # External links
-│   └── *.file/                # File items
+|   ├── *.page/                # Canvas Pages
+|   ├── *.assignment/          # Canvas Assignments (with optional rubric.yaml)
+|   ├── *.link/                # External links
+|   └── *.file/                # File items
 ├── assets/                     # Shared media (images, PDFs, videos)
 ├── quiz-banks/                 # *.quiz.txt (NYIT-style plain text)
 ├── outcomes/                   # outcomes.yaml (course learning outcomes)
 ├── modules/                    # module_order.yaml (module structure)
 ├── rubrics/                    # Shared rubrics and reusable rows
-│   ├── *.yaml                 # Full shared rubrics
-│   └── rows/*.yaml            # Reusable criterion rows
+|   ├── *.yaml                 # Full shared rubrics
+|   └── rows/*.yaml            # Reusable criterion rows
 ├── _course_metadata/           # Generated state/config
-│   ├── defaults.json          # course_id, defaults
-│   ├── upload_cache.json      # Canvas file upload cache
-│   └── watch_state.json       # Incremental sync state
+|   ├── defaults.json          # course_id, defaults
+|   ├── upload_cache.json      # Canvas file upload cache
+|   └── watch_state.json       # Incremental sync state
 └── zaphod/                     # Python scripts (the engine)
 ```
 
@@ -212,6 +212,42 @@ Contact {{var:instructor_name}} for help.
 - `last_run_ts` - timestamp of last run
 - `run_count` - total runs
 - `last_run_datetime` - ISO timestamp
+
+### 10. `export_cartridge.py`
+**Purpose:** Export course to IMS Common Cartridge format
+
+**What it does:**
+- Creates a complete `.imscc` package for LMS portability
+- Generates `imsmanifest.xml` with full course structure
+- Converts pages to HTML web content
+- Converts assignments to CC assignment XML with rubrics
+- Converts quizzes to QTI 1.2 assessment format
+- Includes learning outcomes
+- Preserves module structure in organization
+- Bundles all media assets
+
+**Output Structure:**
+```
+course_export.imscc (ZIP file)
+├── imsmanifest.xml           # Course manifest with organization
+├── web_resources/            # Content items
+│   ├── <item_id>/
+│   │   ├── content.html      # Page/assignment HTML
+│   │   ├── assignment.xml    # Assignment metadata (if applicable)
+│   │   └── rubric.xml        # Rubric (if applicable)
+│   └── assets/               # Media files
+└── assessments/              # Quizzes
+    └── <quiz_id>/
+        └── assessment.xml    # QTI 1.2 format
+```
+
+**Compatible with:**
+- Canvas LMS
+- Moodle
+- Blackboard
+- Brightspace (D2L)
+- Sakai
+- Any CC 1.3 compliant LMS
 
 ## Incremental Processing
 
