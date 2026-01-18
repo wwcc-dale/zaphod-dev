@@ -20,11 +20,48 @@ indent: 1
 
 In this example:
 
-- The page will appear in “Module 1: Getting Started”.
-- It will also appear under a sub‑section or follow‑up module named “Module 1: Getting Started / Optional Resources”, depending on how you choose to name things.
+- The page will appear in "Module 1: Getting Started".
+- It will also appear under a sub-section or follow-up module named "Module 1: Getting Started / Optional Resources", depending on how you choose to name things.
 - `indent` controls how far the item is indented within the module, which Canvas uses to visually group related items.
 
 You can add or remove module names here at any time; on the next sync, Zaphod will update Canvas to reflect the new structure.
+
+### Organizing by directory with `module-` prefix
+
+For courses with many items per module, you can organize your `pages/` folder into subdirectories and let Zaphod infer module membership from the directory name. Any directory starting with `module-` will automatically assign its contents to that module:
+
+```text
+pages/
+  module-Week 1/
+    01-overview.page/
+      index.md          # no modules: needed, inferred as "Week 1"
+    02-reading.page/
+      index.md          # also inferred as "Week 1"
+  module-Week 2/
+    01-lecture.page/
+      index.md          # inferred as "Week 2"
+```
+
+The module name is everything after the `module-` prefix. For example:
+
+| Directory | Inferred Module |
+|-----------|-----------------|
+| `module-Week 1/` | "Week 1" |
+| `module-Credit 1: Introduction/` | "Credit 1: Introduction" |
+| `module-Getting Started/` | "Getting Started" |
+
+**Explicit frontmatter always wins:** If an item has `modules:` in its frontmatter, that takes precedence over the directory-based inference. This lets you place an item in a different module or multiple modules even when it lives inside a `module-` directory:
+
+```yaml
+---
+name: "Shared Resource"
+type: "Page"
+modules:
+  - "Week 1"
+  - "Week 2"
+  - "Course Resources"
+---
+```
 
 ### Optional module ordering file
 
@@ -44,18 +81,18 @@ module_order:
 
 Typical uses:
 
-- **`module_order`** tells Zaphod the preferred top‑to‑bottom order of modules in Canvas.  
-- **`protected_modules`** are modules Zaphod should leave alone, even if they end up empty (for example an ongoing “Course Resources” module).
+- **`module_order`** tells Zaphod the preferred top-to-bottom order of modules in Canvas.
+- **`protected_modules`** are modules Zaphod should leave alone, even if they end up empty (for example an ongoing "Course Resources" module).
 
-If you don’t provide this file, Zaphod will still create whatever modules your content asks for; they just won’t have a centrally controlled order.
+If you don't provide this file, Zaphod will still create whatever modules your content asks for; they just won't have a centrally controlled order.
 
 ### What the module sync does
 
-When you run the module‑related steps in the pipeline, Zaphod:
+When you run the module-related steps in the pipeline, Zaphod:
 
-- Reads each item’s `modules` list from its frontmatter.  
-- Ensures those modules exist in Canvas, creating them if necessary.  
-- Adds each item to the modules it lists, avoiding duplicate entries.  
+- Reads each item's `modules` list from its frontmatter (or infers from `module-` directory).
+- Ensures those modules exist in Canvas, creating them if necessary.
+- Adds each item to the modules it lists, avoiding duplicate entries.
 - Optionally reorders modules in Canvas to match `module_order`, and prunes extra module items or empty modules according to your settings.
 
-The result is that your file structure and frontmatter become the source of truth for how the course is organized, while Canvas’s Modules page becomes a live reflection of what you’ve described in text.
+The result is that your file structure and frontmatter become the source of truth for how the course is organized, while Canvas's Modules page becomes a live reflection of what you've described in text.
