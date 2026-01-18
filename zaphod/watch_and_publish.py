@@ -334,6 +334,16 @@ def main():
     print(f"[watch] COURSE_ROOT: {COURSE_ROOT}")
     print(f"[watch] STATE_FILE: {STATE_FILE}\n")
 
+    # Run initial full sync on startup
+    print("[watch] Running initial full sync...")
+    all_index_files = list(PAGES_DIR.rglob("index.md"))
+    if all_index_files:
+        run_pipeline(all_index_files)
+        set_last_run_time(time.time())
+        print("[watch] INITIAL SYNC COMPLETE\n")
+    else:
+        print("[watch] No index.md files found, skipping initial sync\n")
+
     try:
         while True:
             time.sleep(1)

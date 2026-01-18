@@ -8,8 +8,7 @@ from pathlib import Path
 import json
 import os
 import re
-import yaml
-import frontmatter  
+import frontmatter
 from zaphod.errors import (
     FrontmatterError,
     invalid_frontmatter_error,
@@ -22,6 +21,35 @@ SHARED_ROOT = SCRIPT_DIR.parent
 COURSES_ROOT = SHARED_ROOT.parent
 COURSE_ROOT = Path.cwd()          # always "current course"
 PAGES_DIR = COURSE_ROOT / "pages" # where applicable
+
+
+def infer_module_from_path(folder: Path) -> str | None:
+    """
+    Given a content folder path, walk up the directory tree looking for
+    a parent directory that starts with 'module-' (case-insensitive).
+    
+    Returns the module name (everything after 'module-'), or None if
+    no module directory is found before reaching PAGES_DIR.
+    
+    If multiple module- directories exist in the path, returns the closest
+    (innermost) one.
+    
+    Examples:
+        pages/module-Week 1/intro.page/           -> "Week 1"
+        pages/module-Credit 1/assignment1.assignment/ -> "Credit 1"
+        pages/module-Outer/module-Inner/intro.page/  -> "Inner" (closest)
+        pages/intro.page/                         -> None
+    """
+    current = folder.parent  # start with parent of content folder
+    
+    while current != PAGES_DIR and current != current.parent:
+        name_lower = current.name.lower()
+        if name_lower.startswith("module-"):
+            # Extract module name (preserving original case after 'module-')
+            return current.name[7:]  # len("module-") == 7
+        current = current.parent
+    
+    return None
 
 
 # {{var:key}} interpolation
@@ -151,12 +179,6 @@ def iter_changed_content_dirs(changed_files: list[Path]):
 
 
 def process_folder(folder: Path):
-    """
-    Process a content folder (e.g., my-page.page/) by:
-    1. Reading index.md with frontmatter
-    2. Expanding includes and variables
-    3. Writing meta.json and source.md
-    """
     index_path = folder / "index.md"
     meta_path = folder / "meta.json"
     source_path = folder / "source.md"
@@ -178,46 +200,28 @@ def process_folder(folder: Path):
             # Then: {{var:...}} in the main body
             content = interpolate_body(content, metadata)
 
-        except yaml.YAMLError as e:
-            # Specific YAML parsing error
-            raise FrontmatterError(
-                message=f"Invalid YAML frontmatter in {folder.name}/index.md",
-                suggestion=(
-                    "Check YAML syntax:\n"
-                    "  - Ensure proper indentation (use spaces, not tabs)\n"
-                    "  - Quote strings with special characters\n"
-                    "  - Close all brackets and quotes\n\n"
-                    f"YAML Error: {e}"
-                ),
-                context={
-                    "file": str(index_path),
-                    "folder": folder.name
-                },
-                cause=e
-            )
         except Exception as e:
             print(f"[frontmatter:warn] {folder.name}: {e}")
-            raise
         else:
             # Require minimum keys for a valid Canvas object
-            missing_fields = []
             for k in ["name", "type"]:
                 if k not in metadata:
-                    missing_fields.append(k)
-            
-            if missing_fields:
-                raise invalid_frontmatter_error(
-                    file_path=index_path,
-                    missing_fields=missing_fields
-                )
-            
-            # Success - write output
-            with meta_path.open("w", encoding="utf-8") as f:
-                json.dump(metadata, f, indent=2, ensure_ascii=False)
-            with source_path.open("w", encoding="utf-8") as f:
-                f.write(content)
-            print(f"[✓ frontmatter] {folder.name}")
-            return
+                    print(f"[frontmatter:warn] {folder.name}: missing '{k}', using meta.json if present")
+                    break
+            else:
+                # Infer module from directory structure if not explicitly set
+                if "modules" not in metadata or not metadata["modules"]:
+                    inferred = infer_module_from_path(folder)
+                    if inferred:
+                        metadata["modules"] = [inferred]
+                        print(f"  [inferred module] '{inferred}' from directory")
+                
+                with meta_path.open("w", encoding="utf-8") as f:
+                    json.dump(metadata, f, indent=2, ensure_ascii=False)
+                with source_path.open("w", encoding="utf-8") as f:
+                    f.write(content)
+                print(f"[✓ frontmatter] {folder.name}")
+                return
 
     # 2) Fallback: existing meta.json + source.md
     if has_meta and has_source:
@@ -225,26 +229,7 @@ def process_folder(folder: Path):
         return
 
     # 3) Nothing usable
-    raise ZaphodFileNotFoundError(
-        message=f"No usable content in {folder.name}",
-        suggestion=(
-            "Create one of:\n"
-            "  1. index.md with frontmatter (recommended):\n"
-            "     ---\n"
-            '     name: "Page Title"\n'
-            '     type: "page"\n'
-            "     ---\n"
-            "     Content here...\n\n"
-            "  2. meta.json + source.md (legacy):\n"
-            "     Both files must exist"
-        ),
-        context={
-            "folder": str(folder),
-            "has_index_md": has_index,
-            "has_meta_json": has_meta,
-            "has_source_md": has_source
-        }
-    )
+    print(f"[frontmatter:err] {folder.name}: no usable metadata (index.md or meta.json/source.md)")
 
 
 if __name__ == "__main__":

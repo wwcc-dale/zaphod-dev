@@ -125,9 +125,27 @@ VIDEO_RE = re.compile(r"\{\{video:\s*\"?([^}\"]+?)\"?\s*\}\}")
 def get_or_upload_video_file(course, folder: Path, filename: str, cache: dict):
     """
     Return a canvasapi File object for `filename` in this course.
-    First tries cache/Canvas, then looks in assets folder or content folder.
+    First tries cache/Canvas, then looks locally using find_local_asset.
+    
+    Uses content-hash caching to handle file updates properly.
+    
+    Supports:
+    - Simple filename: {{video:intro.mp4}}
+    - Explicit path: {{video:videos/intro.mp4}} or {{video:../assets/videos/intro.mp4}}
     """
-    cache_key = f"{course.id}:{filename}"
+    clean_name = Path(filename).name
+    
+    # Find the local file first to get content hash
+    local_path = find_local_asset(folder, filename)
+    
+    if local_path:
+        # Use content hash for cache key (handles updates)
+        content_hash = hashlib.md5(local_path.read_bytes()).hexdigest()[:12]
+        cache_key = f"{course.id}:{clean_name}:{content_hash}"
+    else:
+        # Fallback to name-only key if file not found locally
+        cache_key = f"{course.id}:{clean_name}"
+        content_hash = None
 
     # 1) Check cache first
     if cache_key in cache:
@@ -135,60 +153,48 @@ def get_or_upload_video_file(course, folder: Path, filename: str, cache: dict):
             file_id = cache[cache_key]
             return course.get_file(file_id)
         except Exception as e:
-            print(f"[cache:warn] Cached file {filename} (id={file_id}) not found, will re-upload: {e}")
+            print(f"[cache:warn] Cached file {clean_name} (id={file_id}) not found, will re-upload: {e}")
             del cache[cache_key]
 
-    # 2) Search existing files by name
-    try:
-        for f in course.get_files(search_term=filename):
-            if f.display_name == filename or f.filename == filename:
-                cache[cache_key] = f.id
-                return f
-    except Exception as e:
-        raise CanvasAPIError(
-            message="Failed to search for existing files in Canvas",
-            suggestion="Check your Canvas API credentials and network connection",
-            context={
-                "course_id": course.id,
-                "filename": filename,
-                "operation": "search_files"
-            },
-            cause=e
-        )
-
-    # 3) Look for file locally: assets/ first, then content folder
-    local_path = None
-    searched_paths = []
-    
-    if ASSETS_DIR.exists():
-        asset_path = ASSETS_DIR / filename
-        searched_paths.append(asset_path)
-        if asset_path.is_file():
-            local_path = asset_path
-
+    # 2) If no local file, search Canvas by name (legacy behavior)
     if not local_path:
-        content_path = folder / filename
-        searched_paths.append(content_path)
-        if content_path.is_file():
-            local_path = content_path
-
-    if not local_path:
+        try:
+            for f in course.get_files(search_term=clean_name):
+                if f.display_name == clean_name or f.filename == clean_name:
+                    cache[cache_key] = f.id
+                    return f
+        except Exception as e:
+            raise CanvasAPIError(
+                message="Failed to search for existing files in Canvas",
+                suggestion="Check your Canvas API credentials and network connection",
+                context={
+                    "course_id": course.id,
+                    "filename": clean_name,
+                    "operation": "search_files"
+                },
+                cause=e
+            )
+        
+        # Build list of searched paths for error message
+        searched_paths = [folder / clean_name]
+        if ASSETS_DIR.exists():
+            searched_paths.append(ASSETS_DIR / clean_name)
         raise media_file_not_found_error(
             filename=filename,
             source_file=folder / "index.md",
             searched_paths=searched_paths
         )
 
-    # 4) Upload to Canvas
-    print(f"[upload] Uploading {filename} from {local_path.parent.name}/...")
+    # 3) Upload to Canvas
+    print(f"[upload] Uploading {clean_name} from {local_path.parent.name}/...")
     try:
         success, resp = course.upload(str(local_path))
         if not success:
             raise SyncError(
-                message=f"Canvas upload failed for {filename}",
+                message=f"Canvas upload failed for {clean_name}",
                 suggestion="Check file size, permissions, and network connection",
                 context={
-                    "file": filename,
+                    "file": clean_name,
                     "size_mb": local_path.stat().st_size / (1024 * 1024),
                     "response": str(resp)
                 }
@@ -197,7 +203,7 @@ def get_or_upload_video_file(course, folder: Path, filename: str, cache: dict):
         raise
     except Exception as e:
         raise SyncError(
-            message=f"Error uploading {filename}",
+            message=f"Error uploading {clean_name}",
             context={"file": str(local_path), "course_id": course.id},
             cause=e
         )
@@ -205,12 +211,13 @@ def get_or_upload_video_file(course, folder: Path, filename: str, cache: dict):
     file_id = resp.get("id")
     if not file_id:
         raise SyncError(
-            message=f"Upload succeeded but no file ID returned for {filename}",
+            message=f"Upload succeeded but no file ID returned for {clean_name}",
             suggestion="Check Canvas Files to see if upload succeeded",
             context={"response": resp}
         )
 
     cache[cache_key] = file_id
+    print(f"[upload] Uploaded {clean_name} (id={file_id}, hash={content_hash})")
     return course.get_file(file_id)
 
 
@@ -310,30 +317,51 @@ def is_local_asset_reference(path_str: str) -> bool:
 
 def find_local_asset(folder: Path, filename: str) -> Path | None:
     """
-    Find a local asset file, checking:
-    1. The content folder itself
-    2. The global assets/ directory
+    Find a local asset file, checking in order:
+    1. The content folder itself (exact filename)
+    2. Explicit relative path from the content folder (e.g., ../assets/images/logo.png)
+    3. Path relative to assets/ directory (e.g., images/logo.png)
+    4. Auto-discover by filename anywhere in assets/ subfolders
     
-    Returns the Path if found, None otherwise.
+    For auto-discovery (#4), if multiple files match the same filename,
+    prints a warning and returns None (user must use explicit path).
+    
+    Returns the Path if found (unambiguously), None otherwise.
     """
-    # Strip any leading ./ or relative path components
     clean_name = Path(filename).name
     
-    # Check content folder first
+    # 1. Check content folder for exact filename
     local_path = folder / clean_name
     if local_path.is_file():
         return local_path
     
-    # Also try the exact relative path from the folder
-    relative_path = folder / filename
+    # 2. Try explicit relative path from content folder, resolved
+    #    This handles ../assets/images/logo.png correctly
+    relative_path = (folder / filename).resolve()
     if relative_path.is_file():
         return relative_path
     
-    # Check global assets directory
+    # 3. Try path relative to assets/ directory (e.g., images/logo.png)
     if ASSETS_DIR.exists():
-        asset_path = ASSETS_DIR / clean_name
-        if asset_path.is_file():
-            return asset_path
+        asset_relative = ASSETS_DIR / filename
+        if asset_relative.is_file():
+            return asset_relative
+        
+        # 4. Auto-discover: search all subfolders for filename match
+        #    But only if we haven't already found it via explicit path
+        matches = list(ASSETS_DIR.rglob(clean_name))
+        matches = [m for m in matches if m.is_file()]
+        
+        if len(matches) == 1:
+            return matches[0]
+        elif len(matches) > 1:
+            # Ambiguous - multiple files with same name
+            locations = [str(m.relative_to(ASSETS_DIR)) for m in matches]
+            print(f"[assets:warn] Multiple files named '{clean_name}' found:")
+            for loc in locations:
+                print(f"              - assets/{loc}")
+            print(f"              Use explicit path, e.g., ../assets/{locations[0]}")
+            return None
     
     return None
 
@@ -526,9 +554,15 @@ def find_all_asset_files() -> list[Path]:
 
 
 def upload_file_to_canvas(course, file_path: Path, cache: dict):
-    """Upload a file to Canvas, using cache to avoid re-uploads."""
+    """Upload a file to Canvas, using content-hash cache to avoid re-uploads."""
     filename = file_path.name
-    cache_key = f"{course.id}:{filename}"
+    
+    if not file_path.is_file():
+        raise FileNotFoundError(f"File not found: {file_path}")
+    
+    # Use content hash for cache key
+    content_hash = hashlib.md5(file_path.read_bytes()).hexdigest()[:12]
+    cache_key = f"{course.id}:{filename}:{content_hash}"
 
     if cache_key in cache:
         try:
@@ -536,14 +570,6 @@ def upload_file_to_canvas(course, file_path: Path, cache: dict):
             return course.get_file(file_id)
         except Exception:
             del cache[cache_key]
-
-    for f in course.get_files(search_term=filename):
-        if f.display_name == filename or f.filename == filename:
-            cache[cache_key] = f.id
-            return f
-
-    if not file_path.is_file():
-        raise FileNotFoundError(f"File not found: {file_path}")
 
     print(f"[upload] Uploading {filename}...")
     success, resp = course.upload(str(file_path))
@@ -555,6 +581,7 @@ def upload_file_to_canvas(course, file_path: Path, cache: dict):
         raise RuntimeError(f"No file id in upload response for {file_path}")
 
     cache[cache_key] = file_id
+    print(f"[upload] Uploaded {filename} (id={file_id}, hash={content_hash})")
     return course.get_file(file_id)
 
 
@@ -582,7 +609,9 @@ def bulk_upload_assets(course, cache: dict):
     for file_path in sorted(asset_files):
         filename = file_path.name
         try:
-            cache_key = f"{course.id}:{filename}"
+            # Use content hash for cache check
+            content_hash = hashlib.md5(file_path.read_bytes()).hexdigest()[:12]
+            cache_key = f"{course.id}:{filename}:{content_hash}"
             if cache_key in cache:
                 print(f"[bulk-upload] ✓ {filename} (already uploaded)")
                 skipped += 1
@@ -590,7 +619,6 @@ def bulk_upload_assets(course, cache: dict):
 
             upload_file_to_canvas(course, file_path, cache)
             uploaded += 1
-            print(f"[bulk-upload] ✓ {filename}")
         except Exception as e:
             failed += 1
             print(f"[bulk-upload] ✗ {filename}: {type(e).__name__}: {e}")
