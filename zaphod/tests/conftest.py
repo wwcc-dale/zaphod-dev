@@ -1,4 +1,4 @@
-# tests/conftest.py
+# zaphod/tests/conftest.py
 """
 Pytest configuration and shared fixtures for Zaphod tests
 """
@@ -23,6 +23,8 @@ def temp_course_dir() -> Generator[Path, None, None]:
     (tmpdir / "outcomes").mkdir()
     (tmpdir / "modules").mkdir()
     (tmpdir / "_course_metadata").mkdir()
+    (tmpdir / "rubrics").mkdir()
+    (tmpdir / "rubrics" / "rows").mkdir()
     
     yield tmpdir
     
@@ -128,7 +130,11 @@ def mock_canvas_course(mocker):
     mock_module.name = "Module 1"
     mock_module.id = 10
     mock_module.position = 1
+    mock_module.get_module_items.return_value = []
     mock_course.get_modules.return_value = [mock_module]
+    
+    # Mock files
+    mock_course.get_files.return_value = []
     
     return mock_course
 
