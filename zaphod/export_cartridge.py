@@ -53,7 +53,7 @@ import yaml
 import frontmatter
 import markdown
 
-from config_utils import get_course_id
+from zaphod.config_utils import get_course_id
 
 
 # ============================================================================
@@ -1124,7 +1124,7 @@ def build_cartridge(export: CartridgeExport, output_path: Path):
                     arcname = file_path.relative_to(temp_dir)
                     zf.write(file_path, arcname)
         
-        print(f"\n[cartridge] ✓ Created {output_path}")
+        print(f"\n[cartridge] âœ“ Created {output_path}")
         print(f"[cartridge]   Size: {output_path.stat().st_size / 1024:.1f} KB")
         
     finally:
