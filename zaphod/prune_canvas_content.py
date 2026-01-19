@@ -42,7 +42,7 @@ import json
 import os
 import yaml
 import frontmatter
-from markdown2canvas.setup_functions import make_canvas_api_obj  # [web:131]
+from zaphod.canvas_client import make_canvas_api_obj
 from zaphod.config_utils import get_course_id
 
 SCRIPT_DIR = Path(__file__).resolve().parent
