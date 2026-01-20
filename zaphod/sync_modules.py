@@ -12,6 +12,7 @@ Ensure Canvas modules contain all items declared in meta.json for:
   - .assignment  -> Canvas Assignment module items
   - .file        -> Canvas File module items
   - .link        -> Canvas ExternalUrl module items
+  - .quiz        -> Canvas Quiz module items
 
 Module ordering:
 
@@ -121,7 +122,7 @@ def iter_all_content_dirs():
     Folders are sorted by position/prefix for predictable module ordering.
     """
     folders = []
-    for ext in (".page", ".assignment", ".file", ".link"):
+    for ext in (".page", ".assignment", ".file", ".link", ".quiz"):
         for folder in PAGES_DIR.rglob(f"*{ext}"):
             folders.append(folder)
     
@@ -146,7 +147,7 @@ def iter_changed_content_dirs(changed_files: list[Path]):
     
     Results are sorted by position/prefix for predictable module ordering.
     """
-    exts = {".page", ".assignment", ".file", ".link"}
+    exts = {".page", ".assignment", ".file", ".link", ".quiz"}
     relevant_names = {"index.md", "source.md", "meta.json"}
     found: list[Path] = []
 
@@ -235,7 +236,7 @@ def module_has_item(
         if item_type == "Page":
             if getattr(item, "page_url", None) == page_url:
                 return True
-        elif item_type in {"Assignment", "File"}:
+        elif item_type in {"Assignment", "File", "Quiz"}:
             if getattr(item, "content_id", None) == content_id:
                 return True
         elif item_type == "ExternalUrl":
@@ -268,6 +269,14 @@ def find_file(course, filename: str):
     for f in course.get_files():
         if f.filename == filename:
             return f
+    return None
+
+
+def find_quiz(course, title: str):
+    """Find a quiz by title."""
+    for q in course.get_quizzes():
+        if q.title == title:
+            return q
     return None
 
 
@@ -426,6 +435,42 @@ def sync_link(course, folder: Path, meta: dict):
             }
         )
         print(f"[modules] {folder.name}: added to module '{mname}' (ExternalUrl)")
+
+
+def sync_quiz(course, folder: Path, meta: dict):
+    """Add a quiz to its specified modules."""
+    name = meta.get("name")
+    modules = meta.get("modules") or []
+    indent = meta.get("indent", 0)
+
+    if not name:
+        print(f"[modules:warn] {folder.name}: missing 'name' in meta.json for quiz")
+        return
+    if not modules:
+        return
+
+    quiz = find_quiz(course, name)
+    if not quiz:
+        print(f"[modules:warn] {folder.name}: quiz '{name}' not found in Canvas")
+        print(f"[modules:hint] Run sync_quizzes.py first to create the quiz")
+        return
+
+    content_id = quiz.id
+    for mname in modules:
+        module = ensure_module(course, mname)
+        if module_has_item(module, "Quiz", content_id=content_id):
+            print(f"[modules] {folder.name}: already in module '{mname}' (Quiz)")
+            continue
+
+        module.create_module_item(
+            module_item={
+                "type": "Quiz",
+                "content_id": content_id,
+                "title": name,
+                "indent": indent,
+            }
+        )
+        print(f"[modules] {folder.name}: added to module '{mname}' (Quiz)")
 
 
 # ---------- Module order helpers ----------
@@ -614,6 +659,8 @@ def main():
                 sync_file_item(course, folder, meta)
             elif t == "link":
                 sync_link(course, folder, meta)
+            elif t == "quiz":
+                sync_quiz(course, folder, meta)
             else:
                 print(f"[modules:warn] {folder.name}: unsupported type '{t}' in meta.json")
         

@@ -134,7 +134,7 @@ def iter_all_content_dirs():
     Existing full-scan behavior: yield every content folder under pages/
     ending in one of the known extensions.
     """
-    for ext in [".page", ".assignment", ".link", ".file"]:
+    for ext in [".page", ".assignment", ".link", ".file", ".quiz"]:
         for folder in PAGES_DIR.rglob(f"*{ext}"):
             yield folder
 
@@ -149,7 +149,7 @@ def iter_changed_content_dirs(changed_files: list[Path]):
     - Only if they live inside pages/** and inside a folder whose
       name ends with one of .page / .assignment / .link / .file.
     """
-    exts = {".page", ".assignment", ".link", ".file"}
+    exts = {".page", ".assignment", ".link", ".file", ".quiz"}
 
     seen: set[Path] = set()
 
@@ -203,6 +203,28 @@ def process_folder(folder: Path):
         except Exception as e:
             print(f"[frontmatter:warn] {folder.name}: {e}")
         else:
+            # Infer type from folder extension if not set
+            if "type" not in metadata:
+                ext_to_type = {
+                    ".page": "page",
+                    ".assignment": "assignment",
+                    ".link": "link",
+                    ".file": "file",
+                    ".quiz": "quiz",
+                }
+                inferred_type = ext_to_type.get(folder.suffix)
+                if inferred_type:
+                    metadata["type"] = inferred_type
+                    print(f"  [inferred type] '{inferred_type}' from folder extension")
+            
+            # Infer name from folder if not set
+            if "name" not in metadata:
+                folder_stem = folder.stem
+                nice_name = re.sub(r'^\d+-', '', folder_stem)
+                nice_name = nice_name.replace('-', ' ').replace('_', ' ').title()
+                metadata["name"] = nice_name
+                print(f"  [inferred name] '{nice_name}' from folder name")
+            
             # Require minimum keys for a valid Canvas object
             for k in ["name", "type"]:
                 if k not in metadata:
@@ -220,12 +242,12 @@ def process_folder(folder: Path):
                     json.dump(metadata, f, indent=2, ensure_ascii=False)
                 with source_path.open("w", encoding="utf-8") as f:
                     f.write(content)
-                print(f"[✓ frontmatter] {folder.name}")
+                print(f"[âœ“ frontmatter] {folder.name}")
                 return
 
     # 2) Fallback: existing meta.json + source.md
     if has_meta and has_source:
-        print(f"[↻ meta.json] {folder.name}")
+        print(f"[â†» meta.json] {folder.name}")
         return
 
     # 3) Nothing usable

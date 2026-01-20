@@ -27,26 +27,36 @@ For the *current* course (cwd):
     * File-upload: ^^^^
     * True/False: *a) True / b) False
 
-- Creates a Classic Quiz per file via /courses/:course_id/quizzes
-- Adds each parsed question via Quiz Questions API.
+- Creates a Classic Quiz directly via Canvas API
+- Questions are added to the quiz (and appear in "Unfiled Questions" bank)
+
+Features:
+- Supports fenced code blocks (\`\`\`) in question stems and answers
+- Supports inline code (\`backticks\`) in questions and answers
+- Proper HTML escaping for Canvas display
+
+Note: To import questions into named question banks instead of "Unfiled",
+use import_quiz_bank.py which uses QTI format with the Content Migration API.
 
 Incremental behavior:
 - If ZAPHOD_CHANGED_FILES is set, only *.quiz.txt files listed there
   (under quiz-banks/) are processed.
-- If ZAPHOD_CHANGED_FILES is unset/empty, all *.quiz.txt files are processed
-  (existing full behavior).
+- If ZAPHOD_CHANGED_FILES is unset/empty, all *.quiz.txt files are processed.
 """
 
 from __future__ import annotations
 
+import html
 import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
-from zaphod.config_utils import get_course_id
-import yaml  # pip install pyyaml
+
+import yaml
 from canvasapi import Canvas
+
+from zaphod.config_utils import get_course_id
 from zaphod.errors import (
     quiz_parsing_error,
     ContentValidationError,
@@ -54,16 +64,17 @@ from zaphod.errors import (
 
 
 # Shared layout paths
-SCRIPT_DIR = Path(__file__).resolve().parent          # .../courses/zaphod
-SHARED_ROOT = SCRIPT_DIR.parent                       # .../courses/zaphod
-COURSES_ROOT = SHARED_ROOT.parent                     # .../courses
-COURSE_ROOT = Path.cwd()                              # current course, e.g. .../courses/test
+SCRIPT_DIR = Path(__file__).resolve().parent
+SHARED_ROOT = SCRIPT_DIR.parent
+COURSES_ROOT = SHARED_ROOT.parent
+COURSE_ROOT = Path.cwd()
 QUIZ_BANKS_DIR = COURSE_ROOT / "quiz-banks"
 
 
 # ---------- Canvas helpers ----------
 
 def load_canvas() -> Canvas:
+    """Load Canvas API client."""
     cred_path = os.environ.get("CANVAS_CREDENTIAL_FILE")
     if not cred_path:
         raise SystemExit("CANVAS_CREDENTIAL_FILE is not set")
@@ -84,9 +95,7 @@ def load_canvas() -> Canvas:
 
 
 def create_quiz(course, title: str, meta: Dict[str, Any]):
-    """
-    Create a Classic Quiz using metadata + sensible defaults.
-    """
+    """Create a Classic Quiz using metadata + sensible defaults."""
     description = meta.get("description", "")
     quiz_type = meta.get("quiz_type", "assignment")  # graded quiz
     published = bool(meta.get("published", False))
@@ -109,8 +118,9 @@ def create_quiz(course, title: str, meta: Dict[str, Any]):
 
 
 def add_question(course_id: int, quiz, question_payload: Dict[str, Any], canvas: Canvas):
+    """Add a question to a quiz."""
     resp = quiz.create_question(question=question_payload)
-    print(f"[quiz:q] added {question_payload.get('question_type')}: {question_payload.get('question_name')}")
+    print(f"[quiz:q] added {question_payload.get('question_type')}: {question_payload.get('question_name', '')[:60]}...")
     return resp
 
 
@@ -135,7 +145,7 @@ def split_frontmatter_and_body(raw: str) -> Tuple[Dict[str, Any], str]:
         return {}, raw
 
     fm_text = "\n".join(lines[1:end_idx])
-    body_text = "\n".join(lines[end_idx + 1 :])
+    body_text = "\n".join(lines[end_idx + 1:])
 
     meta = yaml.safe_load(fm_text) or {}
     if not isinstance(meta, dict):
@@ -169,14 +179,132 @@ SHORT_ANSWER_RE = re.compile(r"^\s*\*\s+(.+\S)\s*$")
 TF_TRUE_RE = re.compile(r"^\s*\*a\)\s*True\s*$", re.IGNORECASE)
 TF_FALSE_RE = re.compile(r"^\s*\*b\)\s*False\s*$", re.IGNORECASE)
 
+# Inline code pattern: `code`
+INLINE_CODE_RE = re.compile(r"`([^`]+)`")
+
+
+# ---------- HTML Conversion for Code Blocks ----------
+
+def escape_html(text: str) -> str:
+    """Escape HTML special characters."""
+    return html.escape(text, quote=True)
+
+
+def stem_to_html(stem: str) -> str:
+    """
+    Convert question stem (markdown-ish) to HTML for Canvas.
+    
+    Handles:
+    - Fenced code blocks (``` or ~~~) with optional language
+    - Inline code (`backticks`)
+    - Paragraphs (blank lines become paragraph breaks)
+    - HTML entity escaping
+    """
+    lines = stem.split('\n')
+    result_parts = []
+    current_para = []
+    in_code_block = False
+    code_block_lines = []
+    code_lang = ""
+    
+    def flush_paragraph():
+        nonlocal current_para
+        if current_para:
+            # Join lines, then handle inline code, then escape remaining HTML
+            text = ' '.join(current_para)
+            # Convert inline code first (before escaping)
+            parts = []
+            last_end = 0
+            for match in INLINE_CODE_RE.finditer(text):
+                # Escape text before the match
+                parts.append(escape_html(text[last_end:match.start()]))
+                # Add code tag with escaped content
+                parts.append(f'<code>{escape_html(match.group(1))}</code>')
+                last_end = match.end()
+            # Escape remaining text
+            parts.append(escape_html(text[last_end:]))
+            text = ''.join(parts)
+            result_parts.append(f"<p>{text}</p>")
+            current_para = []
+    
+    for line in lines:
+        stripped = line.strip()
+        
+        # Check for fenced code block start/end
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            if not in_code_block:
+                # Starting a code block
+                flush_paragraph()
+                in_code_block = True
+                code_lang = stripped[3:].strip()  # e.g., ```python -> python
+                code_block_lines = []
+            else:
+                # Ending a code block
+                in_code_block = False
+                code_content = escape_html('\n'.join(code_block_lines))
+                if code_lang:
+                    result_parts.append(
+                        f'<pre><code class="language-{escape_html(code_lang)}">{code_content}</code></pre>'
+                    )
+                else:
+                    result_parts.append(f'<pre><code>{code_content}</code></pre>')
+                code_block_lines = []
+                code_lang = ""
+        elif in_code_block:
+            code_block_lines.append(line)
+        elif not stripped:
+            flush_paragraph()
+        else:
+            current_para.append(line)
+    
+    # Flush any remaining content
+    flush_paragraph()
+    
+    # Handle unclosed code block (shouldn't happen, but be safe)
+    if in_code_block and code_block_lines:
+        code_content = escape_html('\n'.join(code_block_lines))
+        if code_lang:
+            result_parts.append(
+                f'<pre><code class="language-{escape_html(code_lang)}">{code_content}</code></pre>'
+            )
+        else:
+            result_parts.append(f'<pre><code>{code_content}</code></pre>')
+    
+    return '\n'.join(result_parts)
+
+
+def answer_to_html(text: str) -> str:
+    """
+    Convert answer text to HTML, handling inline code.
+    
+    Simpler than stem_to_html since answers rarely have fenced code blocks.
+    """
+    # Convert inline code first, then escape remaining HTML
+    parts = []
+    last_end = 0
+    for match in INLINE_CODE_RE.finditer(text):
+        # Escape text before the match
+        parts.append(escape_html(text[last_end:match.start()]))
+        # Add code tag with escaped content
+        parts.append(f'<code>{escape_html(match.group(1))}</code>')
+        last_end = match.end()
+    # Escape remaining text
+    parts.append(escape_html(text[last_end:]))
+    return ''.join(parts)
+
+
+# ---------- Question Splitting and Parsing ----------
 
 def split_questions(raw: str) -> List[List[str]]:
     """
     Split quiz text into question blocks, separated by blank line(s).
+    
+    Preserves blank lines inside fenced code blocks (``` ... ```).
     """
     lines = raw.splitlines()
     blocks: List[List[str]] = []
     cur: List[str] = []
+    in_code_block = False
 
     def push():
         nonlocal cur, blocks
@@ -185,7 +313,13 @@ def split_questions(raw: str) -> List[List[str]]:
         cur = []
 
     for line in lines:
-        if not line.strip():
+        stripped = line.strip()
+        # Check for fenced code block delimiter
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_code_block = not in_code_block
+            cur.append(line)
+        elif not line.strip() and not in_code_block:
+            # Blank line outside code block = question separator
             push()
         else:
             cur.append(line)
@@ -194,6 +328,7 @@ def split_questions(raw: str) -> List[List[str]]:
 
 
 def detect_qtype(block: List[str]) -> str:
+    """Detect question type from block content."""
     body = "\n".join(block)
     if "####" in body:
         return "essay"
@@ -216,6 +351,7 @@ def detect_qtype(block: List[str]) -> str:
 
 
 def parse_question_block(block: List[str], default_points: float) -> ParsedQuestion:
+    """Parse a single question block into a ParsedQuestion."""
     if not block:
         raise ContentValidationError(
             message="Empty question block encountered",
@@ -224,9 +360,8 @@ def parse_question_block(block: List[str], default_points: float) -> ParsedQuest
 
     m = QUESTION_HEADER_RE.match(block[0])
     if not m:
-        # BETTER ERROR: Show the problematic line
         raise quiz_parsing_error(
-            quiz_file=Path("current_quiz.txt"),  # Would be passed in
+            quiz_file=Path("current_quiz.txt"),
             line_number=1,
             line_content=block[0],
             cause=ValueError("Question must start with number and period, e.g., '1. Question text'")
@@ -259,7 +394,6 @@ def parse_question_block(block: List[str], default_points: float) -> ParsedQuest
                     stem_lines.append(line)
 
         if not any(ans.is_correct for ans in answers):
-            # BETTER ERROR: Specific validation failure
             raise ContentValidationError(
                 message=f"Question {number}: No correct answer marked",
                 suggestion=(
@@ -275,7 +409,6 @@ def parse_question_block(block: List[str], default_points: float) -> ParsedQuest
                 }
             )
 
-        
     elif qtype == "multiple_answers":
         in_opts = False
         for line in rest:
@@ -289,6 +422,7 @@ def parse_question_block(block: List[str], default_points: float) -> ParsedQuest
                     stem_lines.append(line)
         if not any(ans.is_correct for ans in answers):
             raise ValueError(f"Multiple-answers question {number} has no [*] options")
+
     elif qtype == "short_answer":
         for line in rest:
             m_sa = SHORT_ANSWER_RE.match(line)
@@ -298,16 +432,19 @@ def parse_question_block(block: List[str], default_points: float) -> ParsedQuest
                 stem_lines.append(line)
         if not answers:
             raise ValueError(f"Short-answer question {number} has no '* answer' lines")
+
     elif qtype == "essay":
         for line in rest:
             if line.strip() == "####":
                 continue
             stem_lines.append(line)
+
     elif qtype == "file_upload":
         for line in rest:
             if line.strip() == "^^^^":
                 continue
             stem_lines.append(line)
+
     elif qtype == "true_false":
         correct_is_true: Optional[bool] = None
         for line in rest:
@@ -326,11 +463,12 @@ def parse_question_block(block: List[str], default_points: float) -> ParsedQuest
     else:
         raise ValueError(f"Unsupported question type: {qtype}")
 
-    stem = "\n".join(line.strip() for line in stem_lines if line.strip())
+    stem = "\n".join(line for line in stem_lines)
     return ParsedQuestion(number=number, stem=stem, qtype=qtype, answers=answers, points=default_points)
 
 
 def parse_quiz_text(raw: str, default_points: float) -> List[ParsedQuestion]:
+    """Parse quiz text body into list of ParsedQuestion objects."""
     blocks = split_questions(raw)
     questions: List[ParsedQuestion] = []
     for block in blocks:
@@ -345,20 +483,23 @@ def parse_quiz_text(raw: str, default_points: float) -> List[ParsedQuestion]:
 # ---------- Map parsed questions to Canvas payloads ----------
 
 def to_canvas_question_payload(pq: ParsedQuestion) -> Dict[str, Any]:
-    qtext_html = f"<p>{pq.stem}</p>"
+    """Convert ParsedQuestion to Canvas API payload with proper HTML formatting."""
+    qtext_html = stem_to_html(pq.stem)
+    
+    # Truncate question name to Canvas limit (80 chars)
+    name_text = pq.stem.split('\n')[0][:80]
 
     if pq.qtype == "multiple_choice":
         answers = []
         for i, ans in enumerate(pq.answers):
-            answers.append(
-                {
-                    "answer_text": ans.text,
-                    "answer_weight": 100 if ans.is_correct else 0,
-                    "answer_position": i + 1,
-                }
-            )
+            answers.append({
+                "answer_html": answer_to_html(ans.text),
+                "answer_text": ans.text,
+                "answer_weight": 100 if ans.is_correct else 0,
+                "answer_position": i + 1,
+            })
         return {
-            "question_name": f"{pq.stem}",
+            "question_name": name_text,
             "question_text": qtext_html,
             "question_type": "multiple_choice_question",
             "points_possible": pq.points,
@@ -371,15 +512,14 @@ def to_canvas_question_payload(pq: ParsedQuestion) -> Dict[str, Any]:
         answers = []
         for i, ans in enumerate(pq.answers):
             weight = per_correct if ans.is_correct else 0.0
-            answers.append(
-                {
-                    "answer_text": ans.text,
-                    "answer_weight": weight,
-                    "answer_position": i + 1,
-                }
-            )
+            answers.append({
+                "answer_html": answer_to_html(ans.text),
+                "answer_text": ans.text,
+                "answer_weight": weight,
+                "answer_position": i + 1,
+            })
         return {
-            "question_name": f"{pq.stem}",
+            "question_name": name_text,
             "question_text": qtext_html,
             "question_type": "multiple_answers_question",
             "points_possible": pq.points,
@@ -387,17 +527,16 @@ def to_canvas_question_payload(pq: ParsedQuestion) -> Dict[str, Any]:
         }
 
     if pq.qtype == "short_answer":
+        # Short answer uses literal matching, keep plain text
         answers = []
         for i, ans in enumerate(pq.answers):
-            answers.append(
-                {
-                    "answer_text": ans.text,
-                    "answer_weight": 100,
-                    "answer_position": i + 1,
-                }
-            )
+            answers.append({
+                "answer_text": ans.text,
+                "answer_weight": 100,
+                "answer_position": i + 1,
+            })
         return {
-            "question_name": f"{pq.stem}",
+            "question_name": name_text,
             "question_text": qtext_html,
             "question_type": "short_answer_question",
             "points_possible": pq.points,
@@ -406,7 +545,7 @@ def to_canvas_question_payload(pq: ParsedQuestion) -> Dict[str, Any]:
 
     if pq.qtype == "essay":
         return {
-            "question_name": f"{pq.stem}",
+            "question_name": name_text,
             "question_text": qtext_html,
             "question_type": "essay_question",
             "points_possible": pq.points,
@@ -414,24 +553,23 @@ def to_canvas_question_payload(pq: ParsedQuestion) -> Dict[str, Any]:
 
     if pq.qtype == "file_upload":
         return {
-            "question_name": f"{pq.stem}",
+            "question_name": name_text,
             "question_text": qtext_html,
             "question_type": "file_upload_question",
             "points_possible": pq.points,
         }
 
     if pq.qtype == "true_false":
+        # True/false uses literal matching
         answers = []
         for i, ans in enumerate(pq.answers):
-            answers.append(
-                {
-                    "answer_text": ans.text,
-                    "answer_weight": 100 if ans.is_correct else 0,
-                    "answer_position": i + 1,
-                }
-            )
+            answers.append({
+                "answer_text": ans.text,
+                "answer_weight": 100 if ans.is_correct else 0,
+                "answer_position": i + 1,
+            })
         return {
-            "question_name": f"{pq.stem}",
+            "question_name": name_text,
             "question_text": qtext_html,
             "question_type": "true_false_question",
             "points_possible": pq.points,
@@ -444,6 +582,7 @@ def to_canvas_question_payload(pq: ParsedQuestion) -> Dict[str, Any]:
 # ---------- Incremental helpers ----------
 
 def get_changed_files() -> List[Path]:
+    """Get list of changed files from environment."""
     raw = os.environ.get("ZAPHOD_CHANGED_FILES", "").strip()
     if not raw:
         return []
@@ -451,16 +590,14 @@ def get_changed_files() -> List[Path]:
 
 
 def iter_quiz_files_full() -> List[Path]:
+    """Get all quiz files in quiz-banks/."""
     if not QUIZ_BANKS_DIR.exists():
         return []
     return sorted(QUIZ_BANKS_DIR.glob("*.quiz.txt"))
 
 
 def iter_quiz_files_incremental(changed_files: List[Path]) -> List[Path]:
-    """
-    From the changed files list, return the *.quiz.txt files under quiz-banks/
-    that should be processed.
-    """
+    """Filter changed files to only *.quiz.txt files under quiz-banks/."""
     result: List[Path] = []
     seen: set[Path] = set()
 
@@ -473,7 +610,6 @@ def iter_quiz_files_incremental(changed_files: List[Path]) -> List[Path]:
             continue
         if not rel.parts or rel.parts[0] != "quiz-banks":
             continue
-        # Normalize to the actual path on disk (in case of case differences)
         path = QUIZ_BANKS_DIR / rel.name if rel.parent == Path("quiz-banks") else COURSE_ROOT / rel
         if path.is_file() and path not in seen:
             seen.add(path)
@@ -485,6 +621,7 @@ def iter_quiz_files_incremental(changed_files: List[Path]) -> List[Path]:
 # ---------- Main workflow ----------
 
 def process_quiz_file(course, canvas: Canvas, path: Path, course_id: int):
+    """Process a single quiz file and create quiz with questions."""
     print(f"[quiz:file] {path.name}")
     raw = path.read_text(encoding="utf-8")
 
@@ -496,12 +633,19 @@ def process_quiz_file(course, canvas: Canvas, path: Path, course_id: int):
         print(f"[quiz:warn] No questions parsed from {path.name}")
         return
 
-    title = meta.get("title") or path.stem
+    # Use file stem as default title
+    bank_name = path.stem
+    title = meta.get("title") or bank_name
+    
+    # Create the quiz
     quiz = create_quiz(course, title=title, meta=meta)
-
+    
+    # Add questions directly to the quiz
     for pq in questions:
         payload = to_canvas_question_payload(pq)
         add_question(course_id, quiz, payload, canvas)
+    
+    print(f"[quiz] Added {len(questions)} questions to quiz '{title}'")
 
 
 def main():
