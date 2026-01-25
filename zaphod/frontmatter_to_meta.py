@@ -242,12 +242,12 @@ def process_folder(folder: Path):
                     json.dump(metadata, f, indent=2, ensure_ascii=False)
                 with source_path.open("w", encoding="utf-8") as f:
                     f.write(content)
-                print(f"[âœ“ frontmatter] {folder.name}")
+                print(f"[✓ frontmatter] {folder.name}")
                 return
 
     # 2) Fallback: existing meta.json + source.md
     if has_meta and has_source:
-        print(f"[â†» meta.json] {folder.name}")
+        print(f"[↻ meta.json] {folder.name}")
         return
 
     # 3) Nothing usable

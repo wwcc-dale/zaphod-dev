@@ -128,18 +128,66 @@ DEFAULTS_JSON = textwrap.dedent(
     """
 )
 
-QUIZ_SAMPLE = textwrap.dedent(
+QUIZ_SAMPLE_BANK = textwrap.dedent(
     """\
     ---
-    title: Sample quiz bank
+    name: Sample Question Bank
     points_per_question: 1
     ---
     
     1. Example multiple choice question
-    a) Correct answer
+    a) Wrong answer
     *b) Correct answer (marked with *)
     c) Distractor
     d) Distractor
+    
+    1. Another question (markdown-style numbering - all can be "1.")
+    Select all prime numbers:
+    [*] 2
+    [*] 3
+    [ ] 4
+    [*] 5
+    
+    1. Short answer question
+    * correct answer
+    * alternate correct answer
+    
+    1. Essay question
+    Write a paragraph about your learning goals.
+    ####
+    """
+)
+
+QUIZ_SAMPLE_QUIZ = textwrap.dedent(
+    """\
+    ---
+    name: Sample Quiz
+    type: quiz
+    quiz_type: assignment
+    time_limit: null
+    shuffle_answers: true
+    allowed_attempts: 1
+    modules:
+      - Week 1
+    published: false
+    
+    # Pull questions from banks
+    banks:
+      - name: "sample.bank"
+        pick: 2
+    ---
+    
+    # Sample Quiz
+    
+    This quiz pulls questions from the sample question bank.
+    
+    You can also add inline questions below:
+    
+    1. What is the capital of France?
+    a) London
+    *b) Paris
+    c) Berlin
+    d) Madrid
     """
 )
 
@@ -252,8 +300,11 @@ def main() -> None:
     # Metadata defaults (never overwrite, to avoid clobbering course_id)
     write_file(METADATA_DIR / "defaults.json", DEFAULTS_JSON, force=False)
 
-    # Sample quiz bank
-    write_file(QUIZ_BANKS_DIR / "sample.quiz.txt", QUIZ_SAMPLE, force=args.force)
+    # Sample question bank (new .bank.md format)
+    write_file(QUIZ_BANKS_DIR / "sample.bank.md", QUIZ_SAMPLE_BANK, force=args.force)
+
+    # Sample quiz (uses question bank)
+    write_file(PAGES_DIR / "sample-quiz.quiz" / "index.md", QUIZ_SAMPLE_QUIZ, force=args.force)
 
     # Shared rubric and row snippet
     write_file(RUBRICS_DIR / "essay_rubric.yaml", RUBRIC_SHARED_ESSAY, force=args.force)

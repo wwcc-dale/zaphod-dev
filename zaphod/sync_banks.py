@@ -18,8 +18,8 @@ Bank files live in quiz-banks/ and contain questions in a simple text format:
 
 File format (*.bank.md):
     ---
-    title: "Chapter 1 Questions"        # Optional, defaults to filename
-    points_per_question: 2              # Default points per question
+    name: "Chapter 1 Questions"         # Bank display name (or use 'title')
+    points_per_question: 2              # Default points per question (default: 1)
     ---
     
     1. What is 2+2?
@@ -45,6 +45,7 @@ Features:
 - Supports fenced code blocks (```) in question stems and answers
 - Supports inline code (`backticks`) in questions and answers
 - Proper HTML escaping for Canvas display
+- Supports markdown-style repeated numbering (1. 1. 1.) - questions auto-numbered
 
 The bank name in Canvas will match the filename (e.g., "chapter1.bank").
 
@@ -315,8 +316,13 @@ def detect_qtype(block: List[str]) -> str:
     return "multiple_choice"
 
 
-def parse_question_block(block: List[str], default_points: float) -> Optional[ParsedQuestion]:
-    """Parse a single question block."""
+def parse_question_block(block: List[str], default_points: float, auto_number: int = 0) -> Optional[ParsedQuestion]:
+    """
+    Parse a single question block.
+    
+    Supports both explicit numbering (1. 2. 3.) and markdown-style repeated 
+    numbering (1. 1. 1.) where auto_number is used instead.
+    """
     if not block:
         return None
 
@@ -324,6 +330,8 @@ def parse_question_block(block: List[str], default_points: float) -> Optional[Pa
     if not m:
         return None
 
+    # Use the parsed number, but it will be overridden by auto_number in parse_bank_file
+    # This allows "1. 1. 1." markdown-style numbering to work
     number = int(m.group(1))
     stem_first_line = m.group(2).strip()
     rest = block[1:]
@@ -408,10 +416,17 @@ def parse_bank_file(path: Path) -> Optional[BankData]:
     blocks = split_questions(body)
     questions: List[ParsedQuestion] = []
     
+    # Track actual question number for auto-numbering (markdown-style "1." repeated)
+    auto_number = 0
+    
     for block in blocks:
         try:
-            q = parse_question_block(block, default_points=default_points)
+            q = parse_question_block(block, default_points=default_points, auto_number=auto_number)
             if q:
+                auto_number += 1
+                # Override the parsed number with auto-incremented number
+                # This allows markdown-style repeated "1." numbering
+                q.number = auto_number
                 questions.append(q)
         except Exception as e:
             print(f"[bank:warn] Failed to parse question block: {e}")
@@ -421,7 +436,8 @@ def parse_bank_file(path: Path) -> Optional[BankData]:
 
     # Bank name is the file stem (e.g., "chapter1.bank" from "chapter1.bank.md")
     bank_name = path.stem
-    title = meta.get("title") or bank_name
+    # Support both 'name' and 'title' (name takes precedence for consistency with other content types)
+    title = meta.get("name") or meta.get("title") or bank_name
 
     return BankData(
         file_path=path,
@@ -771,7 +787,7 @@ def upload_bank_to_canvas(
         
         bank_id = verify_bank_exists(course_id, bank.bank_name, api_url, api_key)
         if bank_id:
-            print(f"[bank] ✓ Bank '{bank.bank_name}' exists (id={bank_id}) - import succeeded")
+            print(f"[bank] âœ“ Bank '{bank.bank_name}' exists (id={bank_id}) - import succeeded")
             return True
         else:
             print(f"[bank:warn] Cannot verify via API, but import likely succeeded")
@@ -792,6 +808,19 @@ def get_changed_files() -> List[Path]:
     return [Path(p) for p in raw.splitlines() if p.strip()]
 
 
+def natural_sort_key(path: Path) -> tuple:
+    """
+    Natural sort key for file paths.
+    
+    Splits the filename into text and numeric parts so that:
+    - 1, 2, 3, 10, 11 sorts correctly (not 1, 10, 11, 2, 3)
+    - "chapter1" comes before "chapter2" which comes before "chapter10"
+    """
+    import re
+    parts = re.split(r'(\d+)', path.name)
+    return tuple(int(p) if p.isdigit() else p.lower() for p in parts)
+
+
 def iter_bank_files_full() -> List[Path]:
     """Get all bank files in quiz-banks/."""
     if not QUIZ_BANKS_DIR.exists():
@@ -806,7 +835,7 @@ def iter_bank_files_full() -> List[Path]:
         print(f"[bank:warn] Found {len(legacy)} legacy *.quiz.txt files - consider renaming to *.bank.md")
     files.extend(legacy)
     
-    return sorted(files)
+    return sorted(files, key=natural_sort_key)
 
 
 def iter_bank_files_incremental(changed_files: List[Path]) -> List[Path]:
@@ -833,7 +862,7 @@ def iter_bank_files_incremental(changed_files: List[Path]) -> List[Path]:
             seen.add(path)
             result.append(path)
 
-    return sorted(result)
+    return sorted(result, key=natural_sort_key)
 
 
 # ============================================================================

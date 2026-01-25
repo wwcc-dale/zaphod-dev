@@ -467,6 +467,7 @@ def info(ctx: ZaphodContext):
         stats = {
             "pages": len(list(ctx.pages_dir.rglob("*.page"))),
             "assignments": len(list(ctx.pages_dir.rglob("*.assignment"))),
+            "quizzes": len([d for d in ctx.pages_dir.rglob("*.quiz") if d.is_dir()]),
             "links": len(list(ctx.pages_dir.rglob("*.link"))),
             "files": len(list(ctx.pages_dir.rglob("*.file"))),
         }
@@ -475,6 +476,15 @@ def info(ctx: ZaphodContext):
             click.echo(f"{content_type.capitalize()}: {count}")
     else:
         click.echo("No pages/ directory found")
+    
+    # Question banks
+    banks_dir = ctx.course_root / "quiz-banks"
+    if banks_dir.exists():
+        bank_count = len(list(banks_dir.glob("*.bank.md")))
+        legacy_count = len(list(banks_dir.glob("*.quiz.txt")))
+        click.echo(f"Question Banks: {bank_count}")
+        if legacy_count:
+            click.echo(f"Legacy Banks: {legacy_count} (consider migrating to .bank.md)")
     
     # Check for issues
     click.echo("\n🔍 Quick Check")

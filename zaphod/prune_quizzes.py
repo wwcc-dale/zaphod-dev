@@ -27,9 +27,11 @@ import json
 import os
 from pathlib import Path
 from typing import Dict, Any, Set
-from zaphod.config_utils import get_course_id
 
+import yaml
 from canvasapi import Canvas
+
+from zaphod.config_utils import get_course_id
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SHARED_ROOT = SCRIPT_DIR.parent
@@ -68,14 +70,21 @@ def load_canvas() -> Canvas:
 def get_local_quiz_names() -> Set[str]:
     """
     Get quiz names from local .quiz/ folders by reading their meta.json or index.md.
+    
+    Searches for quiz content in:
+    1. pages/**/*.quiz/ directories (folders with .quiz extension)
+    2. Reads name from meta.json or index.md frontmatter
     """
     names: Set[str] = set()
     if not PAGES_DIR.is_dir():
         return names
 
-    for quiz_folder in PAGES_DIR.rglob("*.quiz"):
-        if not quiz_folder.is_dir():
+    for quiz_path in PAGES_DIR.rglob("*.quiz"):
+        # Only process directories (quiz folders, not files)
+        if not quiz_path.is_dir():
             continue
+        
+        quiz_folder = quiz_path
         
         # Try meta.json first
         meta_path = quiz_folder / "meta.json"
@@ -85,6 +94,7 @@ def get_local_quiz_names() -> Set[str]:
                 name = data.get("name")
                 if name:
                     names.add(name)
+                    print(f"[prune:quiz]   Found quiz '{name}' from {quiz_folder.relative_to(PAGES_DIR)}/meta.json")
                     continue
             except Exception:
                 pass
@@ -93,7 +103,6 @@ def get_local_quiz_names() -> Set[str]:
         index_path = quiz_folder / "index.md"
         if index_path.exists():
             try:
-                import yaml
                 content = index_path.read_text(encoding="utf-8")
                 if content.startswith("---"):
                     end_idx = content.find("---", 3)
@@ -103,8 +112,18 @@ def get_local_quiz_names() -> Set[str]:
                             name = fm.get("name")
                             if name:
                                 names.add(name)
+                                print(f"[prune:quiz]   Found quiz '{name}' from {quiz_folder.relative_to(PAGES_DIR)}/index.md")
+                                continue
             except Exception:
                 pass
+        
+        # If no name found in meta or frontmatter, derive from folder name
+        # This ensures we don't prune quizzes that exist locally but lack metadata
+        folder_stem = quiz_folder.stem  # e.g., "my-quiz" from "my-quiz.quiz"
+        # Convert to title case (e.g., "my-quiz" -> "My Quiz")
+        inferred_name = folder_stem.replace('-', ' ').replace('_', ' ').title()
+        names.add(inferred_name)
+        print(f"[prune:quiz]   Found quiz '{inferred_name}' (inferred from folder: {quiz_folder.relative_to(PAGES_DIR)})")
     
     return names
 
