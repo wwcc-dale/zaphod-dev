@@ -234,7 +234,7 @@ def sync(ctx: ZaphodContext, watch: bool, course_id: Optional[int], assets_only:
 # ============================================================================
 
 @cli.command()
-@click.option('--type', 'content_type', type=click.Choice(['page', 'assignment', 'link', 'file', 'all']), 
+@click.option('--type', 'content_type', type=click.Choice(['page', 'assignment', 'link', 'file', 'quiz', 'all']), 
               default='all', help='Filter by content type')
 @click.option('--module', help='Filter by module name')
 @click.option('--json', 'as_json', is_flag=True, help='Output as JSON')
@@ -246,6 +246,7 @@ def list(ctx: ZaphodContext, content_type: str, module: Optional[str], as_json: 
     Examples:
         zaphod list                      # List all content
         zaphod list --type assignment    # Only assignments
+        zaphod list --type quiz          # Only quizzes
         zaphod list --module "Week 1"    # Content in specific module
         zaphod list --json               # JSON output
     """
@@ -254,7 +255,7 @@ def list(ctx: ZaphodContext, content_type: str, module: Optional[str], as_json: 
         sys.exit(1)
     
     items = []
-    extensions = ['.page', '.assignment', '.link', '.file'] if content_type == 'all' else [f'.{content_type}']
+    extensions = ['.page', '.assignment', '.link', '.file', '.quiz'] if content_type == 'all' else [f'.{content_type}']
     
     for ext in extensions:
         for folder in ctx.pages_dir.rglob(f"*{ext}"):
@@ -299,14 +300,14 @@ def list(ctx: ZaphodContext, content_type: str, module: Optional[str], as_json: 
         for content_type, type_items in sorted(by_type.items()):
             click.echo(f"\n{content_type.upper()}S ({len(type_items)}):")
             for item in sorted(type_items, key=lambda x: x["name"]):
-                status = "âœ“" if item["published"] else "[ ]"
+                status = "Ã¢Å“â€œ" if item["published"] else "[ ]"
                 modules_str = ", ".join(item["modules"]) if item["modules"] else "No modules"
                 click.echo(f"  {status} {item['name']}")
                 click.echo(f"     {modules_str}")
 
 
 @cli.command()
-@click.option('--type', 'content_type', type=click.Choice(['page', 'assignment', 'link']), 
+@click.option('--type', 'content_type', type=click.Choice(['page', 'assignment', 'link', 'quiz']), 
               required=True, help='Content type to create')
 @click.option('--name', required=True, help='Content name')
 @click.option('--module', multiple=True, help='Module(s) to add content to')
@@ -318,6 +319,7 @@ def new(ctx: ZaphodContext, content_type: str, name: str, module: tuple):
     Examples:
         zaphod new --type page --name "Welcome"
         zaphod new --type assignment --name "Project 1" --module "Week 1"
+        zaphod new --type quiz --name "Midterm" --module "Week 5"
     """
     # SECURITY: Sanitize folder name to prevent path traversal
     safe_name = _sanitize_filename(name)
@@ -368,13 +370,45 @@ def new(ctx: ZaphodContext, content_type: str, name: str, module: tuple):
             'external_url: "https://example.com"',
             "new_tab: true",
         ])
+    elif content_type == "quiz":
+        frontmatter.extend([
+            "",
+            "# quiz settings",
+            "quiz_type: assignment  # or graded_survey, practice_quiz, survey",
+            "time_limit: 30  # minutes, or null for unlimited",
+            "allowed_attempts: 1  # -1 for unlimited",
+            "shuffle_answers: true",
+            "show_correct_answers: true",
+            "",
+            "# Optional: pull questions from banks",
+            "# question_groups:",
+            "#   - bank_id: 12345",
+            "#     pick: 5",
+            "#     points_per_question: 2",
+        ])
     
     frontmatter.append("---")
     frontmatter.append("")
     frontmatter.append(f"# {name}")
     frontmatter.append("")
-    frontmatter.append("Add your content here...")
-    frontmatter.append("")
+    
+    if content_type == "quiz":
+        frontmatter.extend([
+            "Quiz description here...",
+            "",
+            "## 1. Sample Question",
+            "",
+            "What is 2 + 2?",
+            "",
+            "a. 3",
+            "b. 4 *",
+            "c. 5",
+            "d. 6",
+            "",
+        ])
+    else:
+        frontmatter.append("Add your content here...")
+        frontmatter.append("")
     
     index_path = folder_path / "index.md"
     index_path.write_text("\n".join(frontmatter))
@@ -406,7 +440,7 @@ def validate(ctx: ZaphodContext, verbose: bool):
         zaphod validate           # Check for issues
         zaphod validate -v        # Verbose output
     """
-    click.echo(f"[note]Â Validating course: {ctx.course_root}\n")
+    click.echo(f"[note]Ã‚Â Validating course: {ctx.course_root}\n")
     
     # Import the validator
     try:
@@ -458,7 +492,7 @@ def prune(ctx: ZaphodContext, dry_run: bool, assignments: bool):
         env["ZAPHOD_PRUNE_ASSIGNMENTS"] = "true"
     
     if dry_run:
-        click.echo("[note]Â Dry run - showing what would be deleted...\n")
+        click.echo("[note]Ã‚Â Dry run - showing what would be deleted...\n")
     else:
         click.confirm("[!]  This will delete content from Canvas. Continue?", abort=True)
         click.echo("\n[*]  Pruning orphaned content...\n")
@@ -542,7 +576,7 @@ def info(ctx: ZaphodContext):
             click.echo(f"Legacy Banks: {legacy_count} (consider migrating to .bank.md)")
     
     # Check for issues
-    click.echo("\n[note]Â Quick Check")
+    click.echo("\n[note]Ã‚Â Quick Check")
     click.echo("-" * 60)
     
     checks = []

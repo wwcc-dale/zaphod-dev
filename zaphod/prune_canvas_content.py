@@ -15,13 +15,16 @@ Behaviors:
    - Pages: delete Canvas pages whose titles are not present in any index.md frontmatter.
    - Assignments: delete Canvas assignments whose names are not present
      in any .assignment frontmatter (by default).
+   - Quizzes: recognized as first-class content (via .quiz folders).
+     Quiz names are excluded from "extra assignments" since Canvas represents
+     graded quizzes as assignments.
 
 2) Module-item pruning
-   - For pages, assignments, files, and links that STILL exist:
+   - For pages, assignments, quizzes, files, and links that STILL exist:
        * Read their `modules` list from meta.json.
        * For each module in Canvas containing that item:
            - If the module name is NOT in the desired list, delete that module item
-             (but keep the underlying page/assignment/file/link).
+             (but keep the underlying page/assignment/quiz/file/link).
 
 3) Empty module pruning
    - After adjusting module items, delete any modules that have no items,
@@ -139,18 +142,22 @@ def load_local_meta_maps():
 
 def load_local_names():
     """
-    Return (page_names, assignment_names) from index.md frontmatter,
+    Return (page_names, assignment_names, quiz_names) from index.md frontmatter,
     treating index.md as the single source of truth.
 
-    Looks for type/name in each pages/**/*.page/index.md and
-    pages/**/*.assignment/index.md.
+    Looks for type/name in each pages/**/*.page/index.md,
+    pages/**/*.assignment/index.md, and pages/**/*.quiz/index.md.
+    
+    Note: Quiz names are returned separately because Canvas quizzes appear
+    as assignments (graded quizzes are assignment-backed in Canvas).
     """
     page_names = set()
     assignment_names = set()
+    quiz_names = set()
 
     if not PAGES_DIR.exists():
         print(f"[prune] No pages directory at {PAGES_DIR}")
-        return page_names, assignment_names
+        return page_names, assignment_names, quiz_names
 
     for index_path in PAGES_DIR.rglob("index.md"):
         try:
@@ -162,6 +169,20 @@ def load_local_names():
 
         t = str(meta.get("type", "")).lower()
         name = meta.get("name")
+        
+        # Also check meta.json for quiz folders (may not have frontmatter)
+        if not t or not name:
+            meta_path = index_path.parent / "meta.json"
+            if meta_path.exists():
+                try:
+                    meta_data = json.loads(meta_path.read_text(encoding="utf-8"))
+                    if not t:
+                        t = str(meta_data.get("type", "")).lower()
+                    if not name:
+                        name = meta_data.get("name")
+                except Exception:
+                    pass
+        
         if not name:
             continue
 
@@ -169,8 +190,10 @@ def load_local_names():
             page_names.add(name)
         elif t == "assignment":
             assignment_names.add(name)
+        elif t == "quiz":
+            quiz_names.add(name)
 
-    return page_names, assignment_names
+    return page_names, assignment_names, quiz_names
 
 
 def load_canvas_sets(course):
@@ -448,11 +471,15 @@ def main():
     )
 
     # 1) Content-level pruning (pages and assignments)
-    local_page_names, local_assignment_names = load_local_names()
+    local_page_names, local_assignment_names, local_quiz_names = load_local_names()
     canvas_page_names, canvas_assignment_names = load_canvas_sets(course)
 
     extra_pages = canvas_page_names - local_page_names
-    extra_assignments = canvas_assignment_names - local_assignment_names
+    
+    # Canvas quizzes appear as assignments (graded quizzes are assignment-backed)
+    # So we need to exclude quiz names from extra_assignments calculation
+    known_assignment_like_names = local_assignment_names | local_quiz_names
+    extra_assignments = canvas_assignment_names - known_assignment_like_names
 
     delete_extra_pages(course, extra_pages, apply=apply)
 

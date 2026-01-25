@@ -8,3 +8,4 @@ courses
 **/zaphod/*.zip
 .claude
 99-*.md
+zaphod.egg-info

@@ -11,17 +11,17 @@ Syncs quiz folders (*.quiz/) to Canvas as first-class content items.
 Quiz folders live alongside pages and assignments in the content directory:
 
     pages/                              # (or content/)
-    â”œâ”€â”€ module-01-intro/
-    â”‚   â”œâ”€â”€ 01-welcome.page/
-    â”‚   â”‚   â””â”€â”€ index.md
-    â”‚   â”œâ”€â”€ 02-homework.assignment/
-    â”‚   â”‚   â””â”€â”€ index.md
-    â”‚   â””â”€â”€ 03-pretest.quiz/           # â† Quiz as first-class citizen
-    â”‚       â””â”€â”€ index.md
-    â”‚
+    Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ module-01-intro/
+    Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ 01-welcome.page/
+    Ã¢â€â€š   Ã¢â€â€š   Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ index.md
+    Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ 02-homework.assignment/
+    Ã¢â€â€š   Ã¢â€â€š   Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ index.md
+    Ã¢â€â€š   Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ 03-pretest.quiz/           # Ã¢â€ Â Quiz as first-class citizen
+    Ã¢â€â€š       Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ index.md
+    Ã¢â€â€š
     quiz-banks/                         # Source pools (not deployed directly)
-    â”œâ”€â”€ chapter1.bank.md
-    â””â”€â”€ chapter2.bank.md
+    Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ chapter1.bank.md
+    Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ chapter2.bank.md
 
 Quiz index.md format:
 
@@ -127,21 +127,45 @@ def compute_quiz_hash(folder_path: Path) -> str:
     return hashlib.md5(content.encode()).hexdigest()[:12]
 
 
-def quiz_needs_sync(folder_path: Path, cache: Dict[str, Any], force: bool = False) -> bool:
-    """Check if a quiz needs to be synced based on content hash."""
+def quiz_needs_sync(folder_path: Path, cache: Dict[str, Any], existing_quizzes: Dict[str, Any], force: bool = False) -> Tuple[bool, str]:
+    """
+    Check if a quiz needs to be synced based on content hash AND Canvas existence.
+    
+    Returns (needs_sync, reason) tuple.
+    """
     if force:
-        return True
+        return True, "forced"
     
     current_hash = compute_quiz_hash(folder_path)
     cache_key = str(folder_path.relative_to(COURSE_ROOT))
     
     cached = cache.get(cache_key, {})
     cached_hash = cached.get("hash")
+    cached_canvas_id = cached.get("canvas_id")
+    
+    # If we have a cached canvas_id, verify the quiz still exists
+    if cached_canvas_id and cached_hash == current_hash:
+        # Check if quiz exists in Canvas by looking at existing_quizzes
+        # We need to parse the folder to get the quiz name
+        index_path = folder_path / "index.md"
+        if index_path.exists():
+            try:
+                raw = index_path.read_text(encoding="utf-8")
+                meta, _ = split_frontmatter_and_body(raw)
+                quiz_name = meta.get("name") or meta.get("title") or folder_path.stem.replace(".quiz", "")
+                
+                if quiz_name not in existing_quizzes:
+                    return True, "missing from Canvas"
+            except Exception:
+                pass
+        
+        return False, "unchanged"
     
     if cached_hash == current_hash:
-        return False
+        # Hash matches but no canvas_id - probably failed before
+        return True, "no canvas_id in cache"
     
-    return True
+    return True, "content changed"
 
 
 def update_quiz_cache(folder_path: Path, quiz_id: int, cache: Dict[str, Any]):
@@ -513,6 +537,7 @@ def infer_module_from_path(folder_path: Path) -> Optional[str]:
 def parse_quiz_folder(folder_path: Path) -> Optional[QuizFolder]:
     """Parse a .quiz/ folder and return QuizFolder."""
     index_path = folder_path / "index.md"
+    meta_path = folder_path / "meta.json"
     
     if not index_path.is_file():
         print(f"[quiz:warn] No index.md in {folder_path}")
@@ -520,11 +545,20 @@ def parse_quiz_folder(folder_path: Path) -> Optional[QuizFolder]:
     
     raw = index_path.read_text(encoding="utf-8")
     
-    # Parse frontmatter
+    # Prefer meta.json for metadata (consistent with sync_modules.py)
+    # Fall back to parsing index.md frontmatter if no meta.json
+    meta = {}
+    if meta_path.is_file():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    
+    # Parse index.md for body content (questions, description)
     lines = raw.splitlines()
     if not lines or not lines[0].strip().startswith("---"):
-        meta = {}
         body = raw
+        fm_meta = {}
     else:
         end_idx = None
         for i in range(1, len(lines)):
@@ -533,16 +567,27 @@ def parse_quiz_folder(folder_path: Path) -> Optional[QuizFolder]:
                 break
         
         if end_idx is None:
-            meta = {}
             body = raw
+            fm_meta = {}
         else:
             fm_text = "\n".join(lines[1:end_idx])
             body = "\n".join(lines[end_idx + 1:])
-            meta = yaml.safe_load(fm_text) or {}
-            if not isinstance(meta, dict):
-                meta = {}
+            fm_meta = yaml.safe_load(fm_text) or {}
+            if not isinstance(fm_meta, dict):
+                fm_meta = {}
     
-    # Extract quiz name
+    # Merge: meta.json takes precedence for name/modules, frontmatter for quiz-specific settings
+    # This ensures sync_quizzes and sync_modules use the same name
+    if not meta:
+        meta = fm_meta
+    else:
+        # Copy quiz-specific settings from frontmatter if not in meta.json
+        for key in ["question_groups", "time_limit", "shuffle_answers", "allowed_attempts", 
+                    "show_correct_answers", "quiz_type", "points_per_question"]:
+            if key in fm_meta and key not in meta:
+                meta[key] = fm_meta[key]
+    
+    # Extract quiz name - meta.json has canonical name from frontmatter_to_meta.py
     name = meta.get("name") or meta.get("title") or folder_path.stem.replace(".quiz", "")
     
     # Parse question groups
@@ -577,10 +622,16 @@ def parse_quiz_folder(folder_path: Path) -> Optional[QuizFolder]:
             desc_lines.append(line)
         description = "\n".join(desc_lines).strip()
     
-    # Infer module from path
-    module = infer_module_from_path(folder_path)
-    if not module and meta.get("module"):
+    # Infer module from path OR get from meta.json
+    # meta.json modules take precedence (set by frontmatter_to_meta.py)
+    module = None
+    if meta.get("modules"):
+        module = meta["modules"][0] if isinstance(meta["modules"], list) else meta["modules"]
+    elif meta.get("module"):
         module = meta["module"]
+    else:
+        # Fall back to path inference
+        module = infer_module_from_path(folder_path)
     
     return QuizFolder(
         folder_path=folder_path,
@@ -597,45 +648,64 @@ def parse_quiz_folder(folder_path: Path) -> Optional[QuizFolder]:
 # Canvas Quiz Creation
 # ============================================================================
 
+# Bank cache file path (shared with sync_banks.py)
+BANK_CACHE_FILE = METADATA_DIR / "bank_cache.json"
+
+
+def load_bank_cache() -> Dict[str, Any]:
+    """Load the bank cache created by sync_banks.py."""
+    if BANK_CACHE_FILE.exists():
+        try:
+            return json.loads(BANK_CACHE_FILE.read_text())
+        except Exception:
+            pass
+    return {}
+
+
 def get_question_banks(course_id: int, api_url: str, api_key: str) -> Dict[str, int]:
-    """Get all question banks and return {name: id} mapping."""
+    """
+    Get question banks mapping {name: id}.
+    
+    Note: Canvas does NOT have a public API for listing question banks.
+    This function tries the API (in case some instances have it enabled),
+    then falls back to providing guidance for manual bank_id specification.
+    """
     url = f"{api_url}/api/v1/courses/{course_id}/question_banks"
     headers = {"Authorization": f"Bearer {api_key}"}
     
     banks = {}
+    api_failed = False
+    
     try:
-        # Paginate through all banks
-        page_url = url
-        while page_url:
-            resp = requests.get(page_url, headers=headers, params={"per_page": 100})
-            
-            if resp.status_code != 200:
-                print(f"[quiz:warn] Failed to fetch question banks (HTTP {resp.status_code})")
-                print(f"[quiz:warn]   Response: {resp.text[:200]}")
-                break
-            
+        resp = requests.get(url, headers=headers, params={"per_page": 100}, timeout=10)
+        
+        if resp.status_code == 200:
             data = resp.json()
-            if not isinstance(data, list):
-                print(f"[quiz:warn] Unexpected response format for question banks")
-                break
-            
-            for bank in data:
-                # Canvas uses "title" for question banks
-                title = bank.get("title", "")
-                bank_id = bank.get("id")
-                if title and bank_id:
-                    banks[title] = bank_id
-            
-            # Check for next page in Link header
-            page_url = None
-            link_header = resp.headers.get("Link", "")
-            for link in link_header.split(","):
-                if 'rel="next"' in link:
-                    page_url = link.split(";")[0].strip("<> ")
-                    break
+            if isinstance(data, list):
+                for bank in data:
+                    title = bank.get("title", "")
+                    bank_id = bank.get("id")
+                    if title and bank_id:
+                        banks[title] = bank_id
+                return banks
+        else:
+            api_failed = True
                     
-    except Exception as e:
-        print(f"[quiz:warn] Could not fetch question banks: {e}")
+    except Exception:
+        api_failed = True
+    
+    if api_failed:
+        # Canvas doesn't have a public question_banks API
+        # Load bank names from sync_banks.py cache for reference
+        bank_cache = load_bank_cache()
+        if bank_cache:
+            print(f"[quiz:info] Canvas question_banks API not available")
+            print(f"[quiz:info] Found {len(bank_cache)} bank(s) in local cache")
+            print(f"[quiz:hint] To link quizzes to banks, find bank IDs in Canvas:")
+            print(f"[quiz:hint]   Course > Quizzes > Manage Question Banks > click bank > ID in URL")
+            print(f"[quiz:hint]   Then add 'bank_id: <id>' to quiz frontmatter question_groups")
+        else:
+            print(f"[quiz:info] Question bank lookup not available (Canvas API limitation)")
     
     return banks
 
@@ -1001,11 +1071,15 @@ def main():
     for folder in quiz_folders:
         print(f"[quiz] === {folder.name} ===")
         
-        # Check if quiz needs sync (based on content hash)
-        if not quiz_needs_sync(folder, quiz_cache, force=args.force):
-            print(f"[quiz]   (unchanged, skipping)")
+        # Check if quiz needs sync (based on content hash AND Canvas existence)
+        needs_sync, reason = quiz_needs_sync(folder, quiz_cache, existing_quizzes, force=args.force)
+        if not needs_sync:
+            print(f"[quiz]   ({reason}, skipping)")
             skipped_count += 1
             continue
+        
+        if reason != "forced" and reason != "content changed":
+            print(f"[quiz]   Reason: {reason}")
         
         quiz_data = parse_quiz_folder(folder)
         if not quiz_data:

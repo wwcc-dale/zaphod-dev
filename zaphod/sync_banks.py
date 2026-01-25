@@ -12,9 +12,9 @@ the QTI Content Migration API.
 Bank files live in quiz-banks/ and contain questions in a simple text format:
 
     quiz-banks/
-    [?]œ[?]€[?]€ chapter1.bank.md
-    [?]œ[?]€[?]€ chapter2.bank.md
-    [?]”[?]€[?]€ final-exam-pool.bank.md
+    [?]Å“[?]â‚¬[?]â‚¬ chapter1.bank.md
+    [?]Å“[?]â‚¬[?]â‚¬ chapter2.bank.md
+    [?]â€[?]â‚¬[?]â‚¬ final-exam-pool.bank.md
 
 File format (*.bank.md):
     ---
@@ -50,8 +50,12 @@ Features:
 The bank name in Canvas will match the filename (e.g., "chapter1.bank").
 
 Incremental behavior:
-- If ZAPHOD_CHANGED_FILES is set, only changed *.bank.md files are processed
-- If ZAPHOD_CHANGED_FILES is unset/empty, all *.bank.md files are processed
+- Content-hash caching: Each bank's content is hashed and stored in 
+  _course_metadata/bank_cache.json. On subsequent runs, only banks whose
+  content has changed are re-uploaded.
+- ZAPHOD_CHANGED_FILES: If set (by watch mode), only those specific files
+  are considered, with hash caching still applied.
+- Use --force to skip cache and re-upload all banks.
 
 Backward compatibility:
 - Also supports legacy *.quiz.txt files (deprecated)
@@ -62,6 +66,7 @@ from __future__ import annotations
 import hashlib
 import html
 import io
+import json
 import os
 import re
 import time
@@ -86,10 +91,78 @@ from zaphod.config_utils import get_course_id
 SCRIPT_DIR = Path(__file__).resolve().parent
 COURSE_ROOT = Path.cwd()
 QUIZ_BANKS_DIR = COURSE_ROOT / "quiz-banks"
+METADATA_DIR = COURSE_ROOT / "_course_metadata"
+BANK_CACHE_FILE = METADATA_DIR / "bank_cache.json"
 
 # QTI/CC namespaces
 QTI_NS = "http://www.imsglobal.org/xsd/ims_qtiasiv1p2"
 CC_NS = "http://www.imsglobal.org/xsd/imsccv1p3/imscp_v1p1"
+
+
+# ============================================================================
+# Cache Helpers (for incremental sync)
+# ============================================================================
+
+def load_bank_cache() -> Dict[str, Any]:
+    """Load the bank cache from disk."""
+    if BANK_CACHE_FILE.exists():
+        try:
+            return json.loads(BANK_CACHE_FILE.read_text())
+        except Exception as e:
+            print(f"[bank:warn] Failed to load cache: {e}")
+    return {}
+
+
+def save_bank_cache(cache: Dict[str, Any]):
+    """Save the bank cache to disk."""
+    try:
+        METADATA_DIR.mkdir(parents=True, exist_ok=True)
+        BANK_CACHE_FILE.write_text(json.dumps(cache, indent=2))
+    except Exception as e:
+        print(f"[bank:warn] Failed to save cache: {e}")
+
+
+def compute_bank_hash(file_path: Path) -> str:
+    """Compute a hash of the bank file content."""
+    if not file_path.exists():
+        return ""
+    
+    content = file_path.read_text(encoding="utf-8")
+    return hashlib.md5(content.encode()).hexdigest()[:12]
+
+
+def bank_needs_sync(file_path: Path, cache: Dict[str, Any], force: bool = False) -> bool:
+    """Check if a bank needs to be synced based on content hash."""
+    if force:
+        return True
+    
+    current_hash = compute_bank_hash(file_path)
+    cache_key = str(file_path.relative_to(COURSE_ROOT))
+    
+    cached = cache.get(cache_key, {})
+    cached_hash = cached.get("hash")
+    
+    if cached_hash == current_hash:
+        return False
+    
+    return True
+
+
+def update_bank_cache(file_path: Path, bank_name: str, cache: Dict[str, Any], migration_id: int = None):
+    """Update the cache with bank info."""
+    cache_key = str(file_path.relative_to(COURSE_ROOT))
+    cache[cache_key] = {
+        "hash": compute_bank_hash(file_path),
+        "bank_name": bank_name,
+        "uploaded_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "migration_id": migration_id,
+    }
+
+
+def bank_already_uploaded(file_path: Path, cache: Dict[str, Any]) -> Dict[str, Any]:
+    """Check if bank was previously uploaded (for --force warnings)."""
+    cache_key = str(file_path.relative_to(COURSE_ROOT))
+    return cache.get(cache_key, {})
 
 
 # ============================================================================
@@ -499,9 +572,12 @@ def parse_bank_file(path: Path) -> Optional[BankData]:
     if not questions:
         return None
 
-    # Bank name is the file stem (e.g., "chapter1.bank" from "chapter1.bank.md")
-    bank_name = path.stem
-    # Support both 'name' and 'title' (name takes precedence for consistency with other content types)
+    # Bank name: use frontmatter 'bank_name' if provided, else fall back to file stem
+    # This controls the actual name in Canvas
+    file_stem = path.stem  # e.g., "chapter1.bank" from "chapter1.bank.md"
+    bank_name = meta.get("bank_name") or file_stem
+    
+    # Title for display: use 'name' or 'title' frontmatter, else bank_name
     title = meta.get("name") or meta.get("title") or bank_name
 
     return BankData(
@@ -775,8 +851,12 @@ def upload_bank_to_canvas(
     bank: BankData,
     api_url: str,
     api_key: str,
-) -> bool:
-    """Upload bank via QTI Content Migration API."""
+) -> Optional[int]:
+    """
+    Upload bank via QTI Content Migration API.
+    
+    Returns migration_id on success, None on failure.
+    """
     print(f"[bank] Creating QTI package for '{bank.bank_name}'...")
     package_bytes = create_qti_package(bank)
     package_size = len(package_bytes)
@@ -797,11 +877,11 @@ def upload_bank_to_canvas(
         resp = requests.post(migration_url, headers=headers, data=init_data, timeout=REQUEST_TIMEOUT)
     except requests.exceptions.Timeout:
         print(f"[bank:error] Timeout initiating migration")
-        return False
+        return None
     
     if resp.status_code not in (200, 201):
         print(f"[bank:error] Failed to initiate migration (HTTP {resp.status_code})")
-        return False
+        return None
     
     migration_data = resp.json()
     migration_id = migration_data.get("id")
@@ -810,7 +890,7 @@ def upload_bank_to_canvas(
     pre_attachment = migration_data.get("pre_attachment")
     if not pre_attachment:
         print(f"[bank:error] No pre_attachment in response")
-        return False
+        return None
     
     upload_url = pre_attachment.get("upload_url")
     upload_params = pre_attachment.get("upload_params", {})
@@ -822,11 +902,11 @@ def upload_bank_to_canvas(
         upload_resp = requests.post(upload_url, data=upload_params, files=files, timeout=UPLOAD_TIMEOUT)
     except requests.exceptions.Timeout:
         print(f"[bank:error] Timeout uploading QTI package")
-        return False
+        return None
     
     if upload_resp.status_code not in (200, 201, 301, 302, 303):
         print(f"[bank:error] Failed to upload file (HTTP {upload_resp.status_code})")
-        return False
+        return None
     
     if upload_resp.status_code in (301, 302, 303):
         confirm_url = upload_resp.headers.get("Location")
@@ -841,6 +921,7 @@ def upload_bank_to_canvas(
     # Poll for completion
     progress_url = migration_data.get("progress_url")
     migration_failed = False
+    timed_out = False
     
     if progress_url:
         print(f"[bank] Waiting for migration...")
@@ -861,26 +942,34 @@ def upload_bank_to_canvas(
             print(f"[bank]   Progress: {completion}% ({workflow_state})")
             
             if workflow_state == "completed":
-                print(f"[bank] ✓ Bank '{bank.bank_name}' imported successfully")
-                return True
+                print(f"[bank] ✔ Bank '{bank.bank_name}' imported successfully")
+                return migration_id
             elif workflow_state == "failed":
                 migration_failed = True
                 break
+        else:
+            # Loop completed without break - timed out
+            timed_out = True
+            print(f"[bank:warn] Migration timed out after 60s (still queued/running)")
+            print(f"[bank:warn] Migration ID {migration_id} may complete later - check Canvas")
     
-    # Verify bank exists even if migration "failed"
-    if migration_failed:
+    # Verify bank exists even if migration "failed" or timed out
+    if migration_failed or timed_out:
         print(f"[bank] Verifying import...")
         time.sleep(1)
         
         bank_id = verify_bank_exists(course_id, bank.bank_name, api_url, api_key)
         if bank_id:
-            print(f"[bank] ✓ Bank '{bank.bank_name}' exists (id={bank_id}) - import succeeded")
-            return True
+            print(f"[bank] ✔ Bank '{bank.bank_name}' exists (id={bank_id}) - import succeeded")
+            return migration_id
         else:
-            print(f"[bank:warn] Cannot verify via API, but import likely succeeded")
-            return True
+            if timed_out:
+                print(f"[bank:warn] Cannot verify via API - migration may still be processing")
+            else:
+                print(f"[bank:warn] Cannot verify via API, but import likely succeeded")
+            return migration_id
     
-    return True
+    return migration_id
 
 
 # ============================================================================
@@ -972,6 +1061,11 @@ def main():
         action="store_true",
         help="Parse files but don't upload to Canvas"
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force sync even if content unchanged"
+    )
     args = parser.parse_args()
     
     course_id = get_course_id()
@@ -981,17 +1075,22 @@ def main():
     course_id_int = int(course_id)
     api_url, api_key = load_canvas_credentials()
     
+    # Load bank cache for incremental sync
+    bank_cache = load_bank_cache()
+    
     # Determine which files to process
     if args.file:
         bank_files = [args.file]
     else:
         changed_files = get_changed_files()
         if changed_files:
+            # Watch mode: use ZAPHOD_CHANGED_FILES for file list
             bank_files = iter_bank_files_incremental(changed_files)
             if not bank_files:
                 print(f"[bank] No changed bank files under {QUIZ_BANKS_DIR}; nothing to do.")
                 return
         else:
+            # Regular sync: get all files, will filter by cache hash
             bank_files = iter_bank_files_full()
             if not bank_files:
                 print(f"[bank] No bank files (*.bank.md) under {QUIZ_BANKS_DIR}")
@@ -1002,8 +1101,22 @@ def main():
     print()
     
     success_count = 0
+    skipped_count = 0
     for path in bank_files:
         print(f"[bank] === {path.name} ===")
+        
+        # Check if bank needs sync (based on content hash)
+        if not bank_needs_sync(path, bank_cache, force=args.force):
+            print(f"[bank]   (unchanged, skipping)")
+            skipped_count += 1
+            continue
+        
+        # Warn about potential duplicate if using --force
+        if args.force:
+            prev_upload = bank_already_uploaded(path, bank_cache)
+            if prev_upload.get("uploaded_at"):
+                print(f"[bank:warn] Bank was uploaded at {prev_upload['uploaded_at']}")
+                print(f"[bank:warn] Using --force will create a DUPLICATE bank in Canvas!")
         
         bank = parse_bank_file(path)
         if not bank:
@@ -1017,12 +1130,19 @@ def main():
             print(f"[bank]   (dry-run) Would import to bank '{bank.bank_name}'")
             success_count += 1
         else:
-            if upload_bank_to_canvas(course_id_int, bank, api_url, api_key):
+            migration_id = upload_bank_to_canvas(course_id_int, bank, api_url, api_key)
+            if migration_id:
+                # Update cache with new hash and migration info
+                update_bank_cache(path, bank.bank_name, bank_cache, migration_id)
                 success_count += 1
         
         print()
     
-    print(f"[bank] Completed: {success_count}/{len(bank_files)} bank(s)")
+    # Save cache
+    if not args.dry_run:
+        save_bank_cache(bank_cache)
+    
+    print(f"[bank] Completed: {success_count} synced, {skipped_count} unchanged")
 
 
 if __name__ == "__main__":
