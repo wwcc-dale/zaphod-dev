@@ -613,7 +613,7 @@ def bulk_upload_assets(course, cache: dict):
             content_hash = hashlib.md5(file_path.read_bytes()).hexdigest()[:12]
             cache_key = f"{course.id}:{filename}:{content_hash}"
             if cache_key in cache:
-                print(f"[bulk-upload] ✓ {filename} (already uploaded)")
+                print(f"[bulk-upload] âœ“ {filename} (already uploaded)")
                 skipped += 1
                 continue
 
@@ -621,7 +621,7 @@ def bulk_upload_assets(course, cache: dict):
             uploaded += 1
         except Exception as e:
             failed += 1
-            print(f"[bulk-upload] ✗ {filename}: {type(e).__name__}: {e}")
+            print(f"[bulk-upload] âœ— {filename}: {type(e).__name__}: {e}")
 
     print(f"\n[bulk-upload] Summary: {uploaded} uploaded, {skipped} skipped, {failed} failed")
     save_upload_cache(cache)
@@ -638,6 +638,11 @@ def main():
         action="store_true",
         help="Only upload asset files, skip content publishing"
     )
+    parser.add_argument(
+        "--dry-run", "-n",
+        action="store_true",
+        help="Preview what would be published without making changes"
+    )
     args = parser.parse_args()
 
     if not PAGES_DIR.exists():
@@ -653,14 +658,20 @@ def main():
         raise SystemExit("[publish] Cannot determine Canvas course ID; aborting.")
 
     course = canvas.get_course(course_id)
-    print(f"[publish] Publishing to course: {course.name} (ID {course_id})")
+    if args.dry_run:
+        print(f"[publish] DRY RUN - would publish to course: {course.name} (ID {course_id})")
+    else:
+        print(f"[publish] Publishing to course: {course.name} (ID {course_id})")
 
     # Load upload cache
     cache = load_upload_cache()
 
     # Handle assets-only mode
     if args.assets_only:
-        bulk_upload_assets(course, cache)
+        if args.dry_run:
+            print("[publish] (dry-run) Would upload assets")
+        else:
+            bulk_upload_assets(course, cache)
         return
 
     # Determine which content to publish
@@ -679,6 +690,11 @@ def main():
         try:
             # Create Zaphod content object
             obj = make_zaphod_obj(d)
+            
+            if args.dry_run:
+                print(f"[publish] (dry-run) Would publish {d.name} as {type(obj).__name__}")
+                continue
+            
             print(f"[publish] Processing {d.name} as {type(obj).__name__}")
 
             # For Pages and Assignments: process placeholders and local assets
@@ -700,7 +716,7 @@ def main():
 
             # Publish to Canvas
             obj.publish(course, overwrite=True)
-            print(f"[✓ publish] {d.name}")
+            print(f"[âœ“ publish] {d.name}")
             
         except Exception as e:
             print(f"[publish:err] {d.name}: {type(e).__name__}: {e}")
@@ -709,9 +725,12 @@ def main():
         
         print()
 
-    # Save cache
-    save_upload_cache(cache)
-    print("[publish] Done.")
+    # Save cache (skip in dry-run mode)
+    if not args.dry_run:
+        save_upload_cache(cache)
+        print("[publish] Done.")
+    else:
+        print("[publish] Dry run complete - no changes made.")
 
 
 if __name__ == "__main__":

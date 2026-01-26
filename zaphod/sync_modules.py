@@ -14,15 +14,27 @@ Ensure Canvas modules contain all items declared in meta.json for:
   - .link        -> Canvas ExternalUrl module items
   - .quiz        -> Canvas Quiz module items
 
-Module ordering:
+Module ordering (priority):
 
-  - Reads _course_metadata/module_order.yaml if present:
+  1. Explicit: modules/module_order.yaml if present:
         modules:
           - "Module 0: Start Here"
           - "Module 1: Getting Started"
           - ...
-  - After syncing items, reorders modules to match that list first,
-    then any remaining modules in name order.
+
+  2. Inferred: from directory structure if no YAML:
+        pages/
+        ├── 01-Week 1.module/     -> position 1, name "Week 1"
+        ├── 02-Week 2.module/     -> position 2, name "Week 2"
+        ├── 10-Final.module/      -> position 3, name "Final"
+        └── Appendix.module/      -> position 4, name "Appendix" (no prefix)
+
+     Module folder patterns:
+     - NEW: '05-Donkey Training.module' -> "Donkey Training" (sorted by 05)
+     - LEGACY: 'module-Week 1' -> "Week 1"
+
+  After syncing items, reorders modules to match the determined order,
+  then any remaining modules in name order.
 
 Module item ordering:
 
@@ -514,25 +526,101 @@ def sync_quiz(course, folder: Path, meta: dict):
 
 # ---------- Module order helpers ----------
 
+def infer_module_order_from_directories() -> list[str]:
+    """
+    Infer module order from directory structure when module_order.yaml is absent.
+    
+    Scans for module folders and sorts by numeric prefix:
+    - NEW pattern: '05-Week 1.module' -> extracts "Week 1", sorts by 05
+    - LEGACY pattern: 'module-Week 1' -> extracts "Week 1", no numeric sort
+    
+    Returns list of module names in sorted order.
+    """
+    import re
+    
+    module_folders = []
+    
+    if not PAGES_DIR.exists():
+        return []
+    
+    # Scan for module folders (both patterns)
+    for item in PAGES_DIR.iterdir():
+        if not item.is_dir():
+            continue
+        
+        name = item.name
+        name_lower = name.lower()
+        
+        # NEW pattern: .module suffix
+        if name_lower.endswith(".module"):
+            # Strip the .module suffix
+            module_name = name[:-7]  # len(".module") == 7
+            
+            # Check for numeric prefix (##- pattern)
+            match = re.match(r'^(\d+)-(.+)$', module_name)
+            if match:
+                sort_key = int(match.group(1))
+                module_name = match.group(2).strip()
+            else:
+                sort_key = 999  # No prefix, sort at end
+            
+            module_folders.append((sort_key, module_name, item.name))
+        
+        # LEGACY pattern: module- prefix
+        elif name_lower.startswith("module-"):
+            module_name = name[7:]  # Strip "module-" prefix
+            
+            # Check for numeric prefix in the module name itself
+            match = re.match(r'^(\d+)-(.+)$', module_name)
+            if match:
+                sort_key = int(match.group(1))
+                # Keep full name for legacy (don't strip prefix from module name)
+            else:
+                sort_key = 999
+            
+            module_folders.append((sort_key, module_name, item.name))
+    
+    if not module_folders:
+        return []
+    
+    # Sort by numeric prefix, then by name
+    module_folders.sort(key=lambda x: (x[0], x[1].lower()))
+    
+    # Extract just the module names
+    order = [name for _, name, _ in module_folders]
+    
+    print(f"[modules] Inferred module order from directories: {order}")
+    return order
+
+
 def load_module_order() -> list[str]:
     """
-    Load desired module order from module_order.yaml, if present.
-    Accepts either:
+    Load desired module order, with fallback to directory inference.
+    
+    Priority:
+    1. module_order.yaml (explicit configuration)
+    2. Directory structure (inferred from *.module folder prefixes)
+    
+    module_order.yaml accepts either:
       - {"modules": [...]} (preferred), or
       - a bare list at top level.
     """
-    if not MODULE_ORDER_PATH.is_file():
-        return []
-    data = yaml.safe_load(MODULE_ORDER_PATH.read_text(encoding="utf-8"))
-    if isinstance(data, dict):
-        mods = data.get("modules") or []
-    elif isinstance(data, list):
-        mods = data
-    else:
-        mods = []
-    order = [str(m).strip() for m in mods if str(m).strip()]
-    print(f"[modules] Desired module order from YAML: {order}")
-    return order
+    # 1. Check for explicit module_order.yaml
+    if MODULE_ORDER_PATH.is_file():
+        data = yaml.safe_load(MODULE_ORDER_PATH.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            mods = data.get("modules") or []
+        elif isinstance(data, list):
+            mods = data
+        else:
+            mods = []
+        order = [str(m).strip() for m in mods if str(m).strip()]
+        if order:
+            print(f"[modules] Desired module order from YAML: {order}")
+            return order
+    
+    # 2. Fallback: infer from directory structure
+    return infer_module_order_from_directories()
 
 def apply_module_order(course, desired_order: list[str]):
     """

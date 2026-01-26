@@ -11,17 +11,21 @@ Syncs quiz folders (*.quiz/) to Canvas as first-class content items.
 Quiz folders live alongside pages and assignments in the content directory:
 
     pages/                              # (or content/)
-    Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ module-01-intro/
-    Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ 01-welcome.page/
-    Ã¢â€â€š   Ã¢â€â€š   Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ index.md
-    Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ 02-homework.assignment/
-    Ã¢â€â€š   Ã¢â€â€š   Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ index.md
-    Ã¢â€â€š   Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ 03-pretest.quiz/           # Ã¢â€ Â Quiz as first-class citizen
-    Ã¢â€â€š       Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ index.md
-    Ã¢â€â€š
+    ├── 01-Intro.module/                # Module folder (NEW pattern)
+    │   ├── 01-welcome.page/
+    │   │   └── index.md
+    │   ├── 02-homework.assignment/
+    │   │   └── index.md
+    │   └── 03-pretest.quiz/            # Quiz as first-class citizen
+    │       └── index.md
+    │
     quiz-banks/                         # Source pools (not deployed directly)
-    Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ chapter1.bank.md
-    Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ chapter2.bank.md
+    ├── chapter1.bank.md
+    └── chapter2.bank.md
+
+Module folder patterns:
+- NEW: '05-Week 1.module' -> infers module "Week 1" (suffix, strips numeric prefix)
+- LEGACY: 'module-Week 1' -> infers module "Week 1" (prefix)
 
 Quiz index.md format:
 
@@ -53,7 +57,7 @@ Quiz index.md format:
     b) 5
 
 Features:
-- Module inference from directory structure (module-*/path/quiz.quiz/)
+- Module inference from directory structure (*.module/ or module-*/)
 - Bank references by name (resolves to Canvas bank ID)
 - Inline questions for simple quizzes
 - Supports fenced code blocks in questions
@@ -517,7 +521,21 @@ def parse_inline_questions(body: str, default_points: float) -> List[ParsedQuest
 # ============================================================================
 
 def infer_module_from_path(folder_path: Path) -> Optional[str]:
-    """Infer module from directory structure (module-* pattern)."""
+    """
+    Infer module from directory structure.
+    
+    Module folder patterns (in order of precedence):
+    1. NEW: Ends with '.module' suffix (case-insensitive)
+       - Numeric prefix (##-) is stripped for sorting purposes
+       - Examples:
+         - '05-Donkey Training.module' -> 'Donkey Training'
+         - 'Week 1.module' -> 'Week 1'
+    
+    2. LEGACY: Starts with 'module-' prefix (case-insensitive)
+       - Examples:
+         - 'module-Week 1' -> 'Week 1'
+         - 'module-Credit 1' -> 'Credit 1'
+    """
     try:
         rel_path = folder_path.relative_to(PAGES_DIR)
     except ValueError:
@@ -527,7 +545,21 @@ def infer_module_from_path(folder_path: Path) -> Optional[str]:
             return None
     
     for part in rel_path.parts:
-        if part.startswith("module-"):
+        part_lower = part.lower()
+        
+        # NEW pattern: .module suffix
+        if part_lower.endswith(".module"):
+            # Strip the .module suffix
+            module_name = part[:-7]  # len(".module") == 7
+            
+            # Strip numeric prefix (##- pattern) used for sorting
+            if len(module_name) >= 3 and module_name[:2].isdigit() and module_name[2] == '-':
+                module_name = module_name[3:]
+            
+            return module_name.strip()
+        
+        # LEGACY pattern: module- prefix (for backward compatibility)
+        if part_lower.startswith("module-"):
             # Extract module name: "module-01-intro" -> "01-intro"
             return part[7:]  # Remove "module-" prefix
     

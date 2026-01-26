@@ -28,7 +28,8 @@ Behaviors:
 
 3) Empty module pruning
    - After adjusting module items, delete any modules that have no items,
-     except modules whose names appear in module_order.yaml.
+     except modules whose names appear in module_order.yaml OR are defined
+     by directory structure (*.module folders).
 
 4) Work-file cleanup
    - Remove auto-generated work files under pages/ to keep the repo clean.
@@ -335,27 +336,76 @@ def prune_module_items(
 
 # ---------- Module order / empty modules ----------
 
+def get_modules_from_directories() -> set[str]:
+    """
+    Get module names inferred from directory structure.
+    
+    Scans for module folders:
+    - NEW pattern: '05-Week 1.module' -> "Week 1"
+    - LEGACY pattern: 'module-Week 1' -> "Week 1"
+    """
+    import re
+    
+    module_names = set()
+    
+    if not PAGES_DIR.exists():
+        return module_names
+    
+    for item in PAGES_DIR.iterdir():
+        if not item.is_dir():
+            continue
+        
+        name = item.name
+        name_lower = name.lower()
+        
+        # NEW pattern: .module suffix
+        if name_lower.endswith(".module"):
+            module_name = name[:-7]  # Strip ".module"
+            # Strip numeric prefix (##- pattern)
+            match = re.match(r'^\d+-(.+)$', module_name)
+            if match:
+                module_name = match.group(1).strip()
+            module_names.add(module_name)
+        
+        # LEGACY pattern: module- prefix
+        elif name_lower.startswith("module-"):
+            module_name = name[7:]  # Strip "module-"
+            module_names.add(module_name)
+    
+    return module_names
+
+
 def load_allowed_empty_modules() -> set[str]:
     """
-    Return the set of module names that are allowed to remain empty,
-    taken from module_order.yaml (if present).
+    Return the set of module names that are allowed to remain empty.
+    
+    Sources (combined):
+    1. module_order.yaml (explicit configuration)
+    2. Directory structure (*.module folders)
     """
-    if not MODULE_ORDER_PATH.is_file():
-        return set()
-    data = yaml.safe_load(MODULE_ORDER_PATH.read_text(encoding="utf-8"))
-    if isinstance(data, dict):
-        mods = data.get("modules") or []
-    elif isinstance(data, list):
-        mods = data
-    else:
-        mods = []
-    return {str(m).strip() for m in mods if str(m).strip()}
+    allowed = set()
+    
+    # 1. From module_order.yaml
+    if MODULE_ORDER_PATH.is_file():
+        data = yaml.safe_load(MODULE_ORDER_PATH.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            mods = data.get("modules") or []
+        elif isinstance(data, list):
+            mods = data
+        else:
+            mods = []
+        allowed.update(str(m).strip() for m in mods if str(m).strip())
+    
+    # 2. From directory structure
+    allowed.update(get_modules_from_directories())
+    
+    return allowed
 
 
 def delete_empty_modules(course, apply=False):
     """
     Delete modules that have no items, except those whose names
-    appear in module_order.yaml.
+    appear in module_order.yaml OR are defined by directory structure.
     """
     allowed_empty = load_allowed_empty_modules()
     print("\n[prune] Checking for empty modules...")
@@ -365,7 +415,7 @@ def delete_empty_modules(course, apply=False):
             continue
 
         if module.name in allowed_empty:
-            print(f"[prune] keeping empty module '{module.name}' (listed in module_order.yaml)")
+            print(f"[prune] keeping empty module '{module.name}' (defined in config or directory)")
             continue
 
         msg = f"[prune] deleting empty module '{module.name}'"

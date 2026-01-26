@@ -3,7 +3,7 @@
 Zaphod CLI - Unified interface for course management
 
 Usage:
-    zaphod sync [--watch] [--course-id ID]
+    zaphod sync [--watch] [--course-id ID] [--dry-run] [--no-prune]
     zaphod validate [--verbose]
     zaphod prune [--dry-run] [--assignments]
     zaphod list [--type TYPE]
@@ -108,11 +108,26 @@ class ZaphodContext:
         return sys.executable
     
     def get_course_id(self) -> Optional[str]:
-        """Get course ID from env or defaults.json"""
+        """Get course ID from env, zaphod.yaml, or defaults.json"""
+        # 1. Check environment variable
         course_id = os.environ.get("COURSE_ID")
         if course_id:
             return course_id
         
+        # 2. Check zaphod.yaml
+        yaml_path = self.course_root / "zaphod.yaml"
+        if yaml_path.exists():
+            try:
+                import yaml
+                data = yaml.safe_load(yaml_path.read_text())
+                if data and data.get("course_id"):
+                    return str(data["course_id"])
+            except ImportError:
+                pass  # PyYAML not installed
+            except Exception:
+                pass
+        
+        # 3. Check defaults.json (legacy)
         defaults_path = self.metadata_dir / "defaults.json"
         if defaults_path.exists():
             try:
@@ -120,10 +135,11 @@ class ZaphodContext:
                 return data.get("course_id")
             except Exception:
                 pass
+        
         return None
     
-    def run_script(self, script_name: str, env: Optional[dict] = None) -> subprocess.CompletedProcess:
-        """Run a Zaphod script"""
+    def run_script(self, script_name: str, args: Optional[list] = None, env: Optional[dict] = None) -> subprocess.CompletedProcess:
+        """Run a Zaphod script with optional arguments"""
         if not self.zaphod_root:
             click.echo("[x] Could not find Zaphod scripts directory", err=True)
             sys.exit(1)
@@ -141,8 +157,12 @@ class ZaphodContext:
         if "CANVAS_CREDENTIAL_FILE" not in full_env:
             full_env["CANVAS_CREDENTIAL_FILE"] = str(Path.home() / ".canvas" / "credentials.txt")
         
+        cmd = [self.python_exe, str(script_path)]
+        if args:
+            cmd.extend(args)
+        
         return subprocess.run(
-            [self.python_exe, str(script_path)],
+            cmd,
             cwd=str(self.course_root),
             env=full_env,
             text=True
@@ -172,17 +192,35 @@ def cli(ctx):
 @click.option('--watch', is_flag=True, help='Watch for changes and auto-sync')
 @click.option('--course-id', type=int, help='Override course ID')
 @click.option('--assets-only', is_flag=True, help='Only upload assets, skip content')
+@click.option('--no-prune', is_flag=True, help='Skip cleanup/prune step')
+@click.option('--dry-run', '-n', is_flag=True, help='Preview changes without making them')
 @click.pass_obj
-def sync(ctx: ZaphodContext, watch: bool, course_id: Optional[int], assets_only: bool):
+def sync(ctx: ZaphodContext, watch: bool, course_id: Optional[int], assets_only: bool, no_prune: bool, dry_run: bool):
     """
     Sync local content to Canvas
+    
+    The sync pipeline runs these steps in order:
+    1. frontmatter_to_meta - Process index.md files
+    2. publish_all - Upload pages, assignments, assets
+    3. sync_banks - Import question banks
+    4. sync_quizzes - Create/update quizzes
+    5. sync_modules - Organize content into modules
+    6. sync_clo - Sync learning outcomes
+    7. sync_rubrics - Sync rubrics to assignments
+    8. prune - Clean up orphaned content (unless --no-prune)
     
     Examples:
         zaphod sync                    # Sync once
         zaphod sync --watch            # Watch and auto-sync
         zaphod sync --course-id 12345  # Override course ID
         zaphod sync --assets-only      # Only upload media files
+        zaphod sync --no-prune         # Skip cleanup step
+        zaphod sync --dry-run          # Preview what would happen
     """
+    if dry_run and watch:
+        click.echo("[!] --dry-run and --watch cannot be used together", err=True)
+        sys.exit(1)
+    
     if watch:
         click.echo("[*] Starting watch mode (Ctrl+C to stop)...")
         click.echo(f"[*] Watching: {ctx.course_root}")
@@ -197,11 +235,17 @@ def sync(ctx: ZaphodContext, watch: bool, course_id: Optional[int], assets_only:
         except KeyboardInterrupt:
             click.echo("\n\n[wave] Stopping watch mode...")
     else:
-        click.echo("[*] Running sync pipeline...")
+        if dry_run:
+            click.echo("[*] Running sync pipeline (DRY RUN - no changes will be made)...")
+        else:
+            click.echo("[*] Running sync pipeline...")
         
         env = {}
         if course_id:
             env["COURSE_ID"] = str(course_id)
+        
+        # Build script commands with --dry-run where supported
+        dry_flag = " --dry-run" if dry_run else ""
         
         # Run the pipeline steps manually
         steps = [
@@ -212,34 +256,59 @@ def sync(ctx: ZaphodContext, watch: bool, course_id: Optional[int], assets_only:
             steps.append(("publish_all.py --assets-only", "[pkg] Uploading assets"))
         else:
             steps.extend([
-                ("publish_all.py", "[up] Publishing content"),
-                ("sync_banks.py", "[bank] Importing question banks"),  # Banks before quizzes
-                ("sync_quizzes.py", "[quiz] Syncing quiz folders"),    # Quizzes before modules
-                ("sync_modules.py", "[books] Syncing modules"),
-                ("sync_clo_via_csv.py", "[target] Syncing outcomes"),
-                ("sync_rubrics.py", "[list] Syncing rubrics"),
+                (f"publish_all.py{dry_flag}", "[up] Publishing content"),
+                (f"sync_banks.py{dry_flag}", "[bank] Importing question banks"),  # Banks before quizzes
+                (f"sync_quizzes.py{dry_flag}", "[quiz] Syncing quiz folders"),    # Quizzes before modules
             ])
+            
+            # These steps require content to exist in Canvas, skip in dry-run
+            if dry_run:
+                steps.append(("SKIP", "[books] Syncing modules (skipped - requires content to exist)"))
+                steps.append(("SKIP", "[target] Syncing outcomes (skipped - requires content to exist)"))
+                steps.append(("SKIP", "[list] Syncing rubrics (skipped - requires content to exist)"))
+            else:
+                steps.extend([
+                    ("sync_modules.py", "[books] Syncing modules"),
+                    ("sync_clo_via_csv.py", "[target] Syncing outcomes"),
+                    ("sync_rubrics.py", "[list] Syncing rubrics"),
+                ])
+            
+            # Add prune step unless --no-prune
+            # Note: prune uses --apply for real runs, default is dry-run
+            if not no_prune:
+                if dry_run:
+                    steps.append(("prune_canvas_content.py", "[sweep] Cleaning up orphaned content (preview)"))
+                else:
+                    steps.append(("prune_canvas_content.py --apply", "[sweep] Cleaning up orphaned content"))
         
         for script, description in steps:
             click.echo(f"\n{description}...")
-            result = ctx.run_script(script.split()[0], env=env)
+            if script == "SKIP":
+                continue  # Just printed the skip message
+            parts = script.split()
+            script_name = parts[0]
+            script_args = parts[1:] if len(parts) > 1 else None
+            result = ctx.run_script(script_name, args=script_args, env=env)
             if result.returncode != 0:
                 click.echo(f"[!]  {script} completed with warnings/errors")
         
-        click.echo("\n[v] Sync complete!")
+        if dry_run:
+            click.echo("\n[v] Dry run complete! No changes were made.")
+        else:
+            click.echo("\n[v] Sync complete!")
 
 
 # ============================================================================
 # Content Management
 # ============================================================================
 
-@cli.command()
+@cli.command('list')  # Keep CLI name as 'list' but Python function is 'list_content'
 @click.option('--type', 'content_type', type=click.Choice(['page', 'assignment', 'link', 'file', 'quiz', 'all']), 
               default='all', help='Filter by content type')
 @click.option('--module', help='Filter by module name')
 @click.option('--json', 'as_json', is_flag=True, help='Output as JSON')
 @click.pass_obj
-def list(ctx: ZaphodContext, content_type: str, module: Optional[str], as_json: bool):
+def list_content(ctx: ZaphodContext, content_type: str, module: Optional[str], as_json: bool):
     """
     List course content
     
@@ -300,7 +369,7 @@ def list(ctx: ZaphodContext, content_type: str, module: Optional[str], as_json: 
         for content_type, type_items in sorted(by_type.items()):
             click.echo(f"\n{content_type.upper()}S ({len(type_items)}):")
             for item in sorted(type_items, key=lambda x: x["name"]):
-                status = "Ã¢Å“â€œ" if item["published"] else "[ ]"
+                status = "[v]" if item["published"] else "[ ]"
                 modules_str = ", ".join(item["modules"]) if item["modules"] else "No modules"
                 click.echo(f"  {status} {item['name']}")
                 click.echo(f"     {modules_str}")
@@ -440,7 +509,7 @@ def validate(ctx: ZaphodContext, verbose: bool):
         zaphod validate           # Check for issues
         zaphod validate -v        # Verbose output
     """
-    click.echo(f"[note]Ã‚Â Validating course: {ctx.course_root}\n")
+    click.echo(f"[*] Validating course: {ctx.course_root}\n")
     
     # Import the validator
     try:
@@ -482,22 +551,21 @@ def prune(ctx: ZaphodContext, dry_run: bool, assignments: bool):
         zaphod prune                        # Delete orphaned content
         zaphod prune --assignments          # Include assignments
     """
-    env = {}
-    if dry_run:
-        env["ZAPHOD_PRUNE_APPLY"] = "false"
-    else:
-        env["ZAPHOD_PRUNE_APPLY"] = "true"
+    args = []
+    
+    if not dry_run:
+        args.append("--apply")
     
     if assignments:
-        env["ZAPHOD_PRUNE_ASSIGNMENTS"] = "true"
+        args.append("--prune-assignments")
     
     if dry_run:
-        click.echo("[note]Ã‚Â Dry run - showing what would be deleted...\n")
+        click.echo("[*] Dry run - showing what would be deleted...\n")
     else:
-        click.confirm("[!]  This will delete content from Canvas. Continue?", abort=True)
-        click.echo("\n[*]  Pruning orphaned content...\n")
+        click.confirm("[!] This will delete content from Canvas. Continue?", abort=True)
+        click.echo("\n[*] Pruning orphaned content...\n")
     
-    ctx.run_script("prune_canvas_content.py", env=env)
+    ctx.run_script("prune_canvas_content.py", args=args if args else None)
     
     if not dry_run:
         click.echo("\n[v] Prune complete!")
@@ -527,7 +595,7 @@ def info(ctx: ZaphodContext):
     if course_id:
         click.echo(f"Course ID: {course_id}")
     else:
-        click.echo("Course ID: Not set (use COURSE_ID env var)")
+        click.echo("Course ID: Not set (add to zaphod.yaml or set COURSE_ID env var)")
     
     click.echo(f"Course Root: {ctx.course_root}")
     click.echo(f"Zaphod Scripts: {ctx.zaphod_root or 'Not found'}")
@@ -576,7 +644,7 @@ def info(ctx: ZaphodContext):
             click.echo(f"Legacy Banks: {legacy_count} (consider migrating to .bank.md)")
     
     # Check for issues
-    click.echo("\n[note]Ã‚Â Quick Check")
+    click.echo("\n[*] Quick Check")
     click.echo("-" * 60)
     
     checks = []

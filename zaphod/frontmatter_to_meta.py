@@ -26,27 +26,55 @@ PAGES_DIR = COURSE_ROOT / "pages" # where applicable
 def infer_module_from_path(folder: Path) -> str | None:
     """
     Given a content folder path, walk up the directory tree looking for
-    a parent directory that starts with 'module-' (case-insensitive).
+    a parent directory that is a module folder.
     
-    Returns the module name (everything after 'module-'), or None if
-    no module directory is found before reaching PAGES_DIR.
+    Module folder patterns (in order of precedence):
+    1. NEW: Ends with '.module' suffix (case-insensitive)
+       - Numeric prefix (##-) is stripped for sorting purposes
+       - Examples:
+         - '05-Donkey Training.module' -> 'Donkey Training'
+         - 'Week 1.module' -> 'Week 1'
     
-    If multiple module- directories exist in the path, returns the closest
+    2. LEGACY: Starts with 'module-' prefix (case-insensitive)
+       - Examples:
+         - 'module-Week 1' -> 'Week 1'
+         - 'module-Credit 1' -> 'Credit 1'
+    
+    Returns the module name, or None if no module directory is found
+    before reaching PAGES_DIR.
+    
+    If multiple module directories exist in the path, returns the closest
     (innermost) one.
     
     Examples:
-        pages/module-Week 1/intro.page/           -> "Week 1"
-        pages/module-Credit 1/assignment1.assignment/ -> "Credit 1"
-        pages/module-Outer/module-Inner/intro.page/  -> "Inner" (closest)
-        pages/intro.page/                         -> None
+        pages/05-Week 1.module/intro.page/           -> "Week 1"
+        pages/Credit 1.module/assignment1.assignment/ -> "Credit 1"
+        pages/module-Credit 1/assignment1.assignment/ -> "Credit 1" (legacy)
+        pages/05-Walking your Catfish/intro.page/    -> None (no .module suffix)
+        pages/intro.page/                            -> None
     """
     current = folder.parent  # start with parent of content folder
     
     while current != PAGES_DIR and current != current.parent:
-        name_lower = current.name.lower()
+        name = current.name
+        name_lower = name.lower()
+        
+        # NEW pattern: .module suffix
+        if name_lower.endswith(".module"):
+            # Strip the .module suffix
+            module_name = name[:-7]  # len(".module") == 7
+            
+            # Strip numeric prefix (##- pattern) used for sorting
+            if len(module_name) >= 3 and module_name[:2].isdigit() and module_name[2] == '-':
+                module_name = module_name[3:]
+            
+            return module_name.strip()
+        
+        # LEGACY pattern: module- prefix (for backward compatibility)
         if name_lower.startswith("module-"):
             # Extract module name (preserving original case after 'module-')
-            return current.name[7:]  # len("module-") == 7
+            return name[7:]  # len("module-") == 7
+        
         current = current.parent
     
     return None
@@ -242,12 +270,12 @@ def process_folder(folder: Path):
                     json.dump(metadata, f, indent=2, ensure_ascii=False)
                 with source_path.open("w", encoding="utf-8") as f:
                     f.write(content)
-                print(f"[✓ frontmatter] {folder.name}")
+                print(f"[âœ“ frontmatter] {folder.name}")
                 return
 
     # 2) Fallback: existing meta.json + source.md
     if has_meta and has_source:
-        print(f"[↻ meta.json] {folder.name}")
+        print(f"[â†» meta.json] {folder.name}")
         return
 
     # 3) Nothing usable
