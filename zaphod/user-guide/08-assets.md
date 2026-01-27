@@ -32,6 +32,8 @@ pages/
     └── welcome-banner.png    # Only used here
 ```
 
+**Note:** When files are uploaded to Canvas, they all go into the course's Files area. Subfolder structure in your local `assets/` folder is not preserved in Canvas — it's just for your local organization.
+
 ---
 
 ## Using Images
@@ -52,23 +54,37 @@ Zaphod looks for the image in:
 ![Course Logo](course-logo.png)
 ```
 
-Zaphod finds it in `assets/course-logo.png`.
+Zaphod finds it in `assets/course-logo.png` (or any subfolder).
 
-### From Subfolder
+### Auto-Discovery
+
+If you have a file anywhere in `assets/` or its subfolders, just use the filename:
 
 ```markdown
-![Chart](charts/figure1.png)
+![Chart](figure1.png)
 ```
 
-Zaphod finds it in `assets/charts/figure1.png`.
+Zaphod searches `assets/` recursively to find `figure1.png`.
 
-### Explicit Path
+### Explicit Path (When Needed)
+
+If you have multiple files with the same name:
 
 ```markdown
 ![Banner](../assets/images/banner.png)
 ```
 
-Use explicit paths when you need precision.
+Use explicit relative paths to avoid ambiguity.
+
+---
+
+## Handling Duplicate Filenames
+
+If you have files with the same name in different locations (e.g., `assets/logo.png` and `pages/welcome.page/logo.png`):
+
+1. Zaphod uses **content-hash caching** — different files with the same name are tracked separately
+2. Each unique file content gets its own Canvas upload
+3. To avoid confusion, use explicit paths or unique filenames
 
 ---
 
@@ -124,7 +140,7 @@ modules:
 ---
 ```
 
-This creates a dedicated file item that appears in Canvas modules view alongside pages, assignments and quizzes allowing students to download it directly.
+This creates a dedicated file item in Canvas that students can download.
 
 ---
 
@@ -186,44 +202,63 @@ zaphod sync
 
 ## Large Media Files
 
-For very large files (videos, high-res images), consider:
+For very large files (videos over 100MB, high-resolution media), Zaphod provides a **media manifest system** to keep them out of your version-controlled files.
 
-### Option 1: Keep in Git
+### Why Use the Manifest System?
 
-Fine for files under ~50MB. Just add to `assets/`.
+Large video files cause problems:
+- Slow clones and pushes
+- Repository size bloat
+- Difficult collaboration
 
-### Option 2: Git LFS
+The manifest system lets you:
+1. Track large files by checksum (not content)
+2. Store originals on a shared drive or server
+3. Download ("hydrate") them when needed
 
-For larger files, use Git Large File Storage:
+### Setting Up
 
-```bash
-git lfs track "*.mp4"
-git lfs track "*.mov"
-```
-
-### Option 3: Media Manifest
-
-For very large files, keep them out of Git entirely:
-
-1. Add large extensions to `.gitignore`:
+1. **Ignore large files in version control:**
    ```
+   # .gitignore
    assets/*.mp4
    assets/*.mov
+   assets/*.avi
+   assets/videos/
    ```
 
-2. Build a manifest:
+2. **Build a manifest:**
    ```bash
-   python zaphod/build_media_manifest.py
+   zaphod manifest
    ```
+   
+   This scans your assets and creates `_course_metadata/media_manifest.json` with checksums.
 
-3. Share the original files via network drive or cloud storage
+3. **Store originals on a shared location:**
+   - Network drive: `\\server\courses\CS101\assets`
+   - Local shared folder: `/mnt/shared/courses/CS101`
+   - Web server: `https://media.university.edu/CS101`
 
-4. Team members hydrate from the shared source:
+4. **Team members download when needed:**
    ```bash
-   python zaphod/hydrate_media.py --source "\\server\courses\CS101"
+   zaphod hydrate --source "\\server\courses\CS101"
    ```
 
-See [Manifest & Hydrate](11-manifest-hydrate.md) for details.
+### Workflow Example
+
+```bash
+# Course author: create course with videos
+zaphod manifest                    # Generate checksums
+git add _course_metadata/          # Commit manifest (small)
+# Copy videos to shared drive
+
+# Collaborator: clone and hydrate
+git clone ...
+zaphod hydrate --source /mnt/shared/courses/CS101
+zaphod sync
+```
+
+See [Manifest & Hydrate](11-manifest-hydrate.md) for complete details.
 
 ---
 
@@ -262,9 +297,9 @@ See [Manifest & Hydrate](11-manifest-hydrate.md) for details.
 
 ### Duplicate Filenames
 
-If you have `assets/logo.png` and `assets/images/logo.png`:
-- Zaphod will warn about the duplicate
-- Use explicit paths to resolve: `images/logo.png`
+If Zaphod warns about multiple files with the same name:
+- Use explicit paths to specify which one: `../assets/images/logo.png`
+- Or rename one of the files to be unique
 
 ---
 

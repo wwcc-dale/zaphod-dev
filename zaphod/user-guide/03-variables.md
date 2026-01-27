@@ -1,53 +1,70 @@
 # Variables
 
-> Variables let you define content once and reuse it throughout your course. Change it in one place, and it updates everywhere.
+> Variables let you define values once and reuse them throughout your course. Change it in one place, and it updates everywhere.
 
 ---
 
 ## Why Use Variables?
 
-Imagine you mention your office hours on 10 different pages. Without variables, updating your office hours means editing 10 files. With variables:
+Imagine you mention your office hours on 10 different pages. Without variables, updating your office hours means editing 10 files. With variables, you change it in one place:
 
 ```yaml
----
+# shared/variables.yaml
 office_hours: "Monday/Wednesday 2-4pm, Room 301"
----
-
-Come to office hours: {{var:office_hours}}
 ```
 
-Change the frontmatter once, and every instance of `{{var:office_hours}}` updates automatically.
+Then every page using `{{var:office_hours}}` updates automatically.
 
 ---
 
-## Basic Usage
+## Where Variables Come From
 
-### Define in Frontmatter
+Variables can be defined at three levels (later levels override earlier):
+
+### 1. Global Level (lowest priority)
+
+Create `_all_courses/shared/variables.yaml` in your courses root:
+
+```
+courses/
+├── _all_courses/
+│   └── shared/
+│       └── variables.yaml    # Shared across ALL courses
+├── CS101/
+└── CS102/
+```
+
+Best for: Institution name, standard policies, common links
+
+### 2. Course Level
+
+Create `shared/variables.yaml` in your course:
+
+```yaml
+# shared/variables.yaml
+course_code: "CS 101"
+course_title: "Introduction to Programming"
+instructor_name: "Dr. Smith"
+instructor_email: "smith@university.edu"
+office_hours: "MW 2-4pm"
+```
+
+Best for: Course-specific values used across many pages
+
+### 3. Page Level (highest priority)
+
+Define in frontmatter to override course-level values:
 
 ```yaml
 ---
-name: "Syllabus"
-instructor: "Dr. Smith"
-email: "smith@university.edu"
-office: "Building A, Room 301"
+name: "Guest Lecture"
+instructor_name: "Dr. Jones"    # Overrides course-level for this page only
 ---
 
-# Course Syllabus
-
-**Instructor:** {{var:instructor}}  
-**Email:** {{var:email}}  
-**Office:** {{var:office}}
+Today's lecture by {{var:instructor_name}}
 ```
 
-### Result in Canvas
-
-```
-# Course Syllabus
-
-**Instructor:** Dr. Smith  
-**Email:** smith@university.edu  
-**Office:** Building A, Room 301
-```
+Result: "Today's lecture by Dr. Jones"
 
 ---
 
@@ -57,96 +74,113 @@ office: "Building A, Room 301"
 {{var:variable_name}}
 ```
 
-- Variable names can contain letters, numbers, underscores, and hyphens
+- Names can contain letters, numbers, underscores, and hyphens
 - Names are case-sensitive (`{{var:Email}}` ≠ `{{var:email}}`)
 - If a variable isn't found, the placeholder stays as-is (helpful for debugging)
 
 ---
 
-## Where to Define Variables
+## Setting Up Course Variables
 
-Variables can be defined at multiple levels:
+### Step 1: Create the shared folder
 
-### 1. Page Level (frontmatter)
-
-```yaml
----
-name: "Week 1 Overview"
-week_number: 1
-topic: "Introduction"
----
-
-# Week {{var:week_number}}: {{var:topic}}
+```
+my-course/
+└── shared/
+    └── variables.yaml
 ```
 
-Used for: Page-specific values
-
-### 2. Course Level (variables.yaml)
-
-Create `variables.yaml` in your course root:
+### Step 2: Add your variables
 
 ```yaml
-# variables.yaml
-instructor: "Dr. Smith"
-email: "smith@university.edu"
-office_hours: "MW 2-4pm"
+# shared/variables.yaml
+
+# Course information
+course_code: "CS 101"
+course_title: "Introduction to Computer Science"
 semester: "Spring 2026"
+
+# Instructor information
+instructor_name: "Dr. Ada Lovelace"
+instructor_email: "lovelace@university.edu"
+instructor_office: "Engineering Building, Room 142"
+office_hours: "Tuesday/Thursday 2-4pm"
+
+# Common phrases
+late_penalty: "10% per day, up to 3 days"
+academic_integrity: "University Academic Integrity Policy"
 ```
 
-Now any page can use `{{var:instructor}}` without defining it in frontmatter.
+### Step 3: Use them in your pages
 
-### 3. Shared Across Courses
+```markdown
+---
+name: "Syllabus"
+---
 
-Create `_all_courses/variables.yaml` in your courses root:
+# {{var:course_code}}: {{var:course_title}}
 
+**Semester:** {{var:semester}}
+
+## Instructor
+
+**Name:** {{var:instructor_name}}  
+**Email:** {{var:instructor_email}}  
+**Office:** {{var:instructor_office}}  
+**Office Hours:** {{var:office_hours}}
+
+## Late Work
+
+Late submissions receive a penalty of {{var:late_penalty}}.
 ```
-courses/
-├── _all_courses/
-│   └── variables.yaml    # Shared variables
-├── CS101/
-│   └── variables.yaml    # Course-specific overrides
-└── CS102/
-```
-
-Best for: Institution name, standard policies, shared links
 
 ---
 
-## Variable Resolution Order
+## Variables in Includes
 
-When Zaphod sees `{{var:name}}`, it looks for `name` in this order:
+Variables work inside included content too! This is powerful for creating reusable templates.
 
-1. **Page frontmatter** (highest priority)
-2. **Course `variables.yaml`**
-3. **Shared `_all_courses/variables.yaml`**
-
-This means you can define defaults at the course level and override them on specific pages.
-
-### Example: Override Pattern
-
-```yaml
-# Course variables.yaml
-instructor: "Dr. Smith"
-
-# Page frontmatter for guest lecture
----
-name: "Guest Lecture"
-instructor: "Dr. Jones"    # Overrides course-level
----
-
-Today's lecture by {{var:instructor}}
+**shared/contact_info.md:**
+```markdown
+**Instructor:** {{var:instructor_name}}  
+**Email:** {{var:instructor_email}}  
+**Office Hours:** {{var:office_hours}}
 ```
 
-Result: "Today's lecture by Dr. Jones"
+**Your page:**
+```markdown
+---
+name: "Syllabus"
+---
+
+# Syllabus
+
+## Contact Information
+
+{{include:contact_info}}
+```
+
+The include uses the variables from shared/variables.yaml (or page frontmatter if overridden).
 
 ---
 
 ## Common Use Cases
 
+### Course Details
+
+```yaml
+# shared/variables.yaml
+course_code: "CS 101"
+course_title: "Introduction to Programming"
+semester: "Spring 2026"
+section: "Section 001"
+credits: "3"
+```
+
 ### Contact Information
 
 ```yaml
-# variables.yaml
+# shared/variables.yaml
 instructor_name: "Dr. Ada Lovelace"
 instructor_email: "lovelace@university.edu"
 ta_name: "Charles Babbage"
@@ -155,21 +189,10 @@ office_hours: "Tuesday/Thursday 3-5pm"
 office_location: "Engineering Building, Room 142"
 ```
 
-### Course Details
-
-```yaml
-# variables.yaml
-course_code: "CS 101"
-course_title: "Introduction to Programming"
-semester: "Spring 2026"
-section: "Section 001"
-credits: "3"
-```
-
 ### External Links
 
 ```yaml
-# variables.yaml
+# shared/variables.yaml
 lms_help: "https://help.canvas.edu"
 library_link: "https://library.university.edu"
 tutoring_link: "https://tutoring.university.edu/cs"
@@ -178,41 +201,10 @@ tutoring_link: "https://tutoring.university.edu/cs"
 ### Reusable Phrases
 
 ```yaml
-# variables.yaml
+# shared/variables.yaml
 late_penalty: "10% per day, up to 3 days"
-academic_integrity: "University Academic Integrity Policy"
+academic_integrity: "See the University Academic Integrity Policy"
 ```
-
----
-
-## Variables in Includes
-
-Variables work inside included content too!
-
-**includes/contact.md:**
-```markdown
-## Contact Information
-
-- **Instructor:** {{var:instructor_name}}
-- **Email:** {{var:instructor_email}}
-- **Office Hours:** {{var:office_hours}}
-```
-
-**Your page:**
-```markdown
----
-name: "Syllabus"
-instructor_name: "Dr. Smith"
-instructor_email: "smith@u.edu"
-office_hours: "MW 2-4pm"
----
-
-# Syllabus
-
-{{include:contact}}
-```
-
-The include gets the variables from the page's frontmatter.
 
 ---
 
@@ -220,11 +212,13 @@ The include gets the variables from the page's frontmatter.
 
 ✅ **Use descriptive names** — `instructor_email` is clearer than `email`
 
-✅ **Define course-wide values in variables.yaml** — Less repetition
+✅ **Put shared values in shared/variables.yaml** — Less repetition
 
-✅ **Check for typos** — `{{var:emial}}` won't match `email`
+✅ **Override in frontmatter when needed** — Guest lectures, special cases
 
-✅ **Variables are text only** — They can't contain markdown formatting that spans multiple lines
+✅ **Combine with includes** — Create reusable templates with variable placeholders
+
+✅ **Variables are text only** — They can't contain multi-line markdown
 
 ---
 
@@ -233,10 +227,23 @@ The include gets the variables from the page's frontmatter.
 If a variable isn't being replaced:
 
 1. Check the spelling matches exactly (case-sensitive)
-2. Check it's defined somewhere (frontmatter, variables.yaml, or _all_courses)
+2. Check it's defined in shared/variables.yaml or page frontmatter
 3. Run `zaphod sync` and look for warnings
+4. Make sure PyYAML is installed (`pip install pyyaml`)
 
 Variables that aren't found remain as `{{var:name}}` in the output, making them easy to spot.
+
+---
+
+## Variable Precedence Summary
+
+| Level | Location | Priority |
+|-------|----------|----------|
+| Global | `_all_courses/shared/variables.yaml` | Lowest |
+| Course | `<course>/shared/variables.yaml` | Medium |
+| Page | Frontmatter | Highest |
+
+Each level overrides values from lower levels.
 
 ---
 

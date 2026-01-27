@@ -171,8 +171,9 @@ Use `^^^^` to indicate students should upload a file:
 
 ### Question Numbering
 
-Questions should be numbered (1., 2., etc.):
+Questions start with a number followed by a period. You can use sequential numbering or markdown-style numbering (all "1."):
 
+**Sequential (traditional):**
 ```markdown
 1. First question?
 *a) Correct
@@ -180,6 +181,20 @@ Questions should be numbered (1., 2., etc.):
 2. Second question?
 *a) Correct
 ```
+
+**Markdown-style (all "1."):**
+```markdown
+1. First question?
+*a) Correct
+
+1. Second question?
+*a) Correct
+
+1. Third question?
+*a) Correct
+```
+
+Both work — Zaphod parses questions by their structure, not their numbers. The markdown-style is easier to maintain when adding or reordering questions.
 
 ### Points Per Question
 
@@ -208,6 +223,9 @@ time_limit: 30                 # Minutes (optional)
 allowed_attempts: 2            # How many tries (optional)
 shuffle_answers: true          # Randomize answer order
 published: false               # Set true when ready
+modules:
+  - "Week 1"                   # Module(s) to appear in
+indent: 1                      # Indentation level in module (optional)
 
 question_groups:
   - bank_id: 12345            # Canvas bank ID
@@ -215,6 +233,16 @@ question_groups:
     points_per_question: 2     # Points each
 ---
 ```
+
+**Common options:**
+| Field | Values | Default |
+|-------|--------|---------|
+| `quiz_type` | `assignment`, `practice_quiz`, `graded_survey`, `survey` | `assignment` |
+| `time_limit` | minutes or `null` | no limit |
+| `allowed_attempts` | number or `-1` for unlimited | 1 |
+| `shuffle_answers` | `true`/`false` | `true` |
+| `show_correct_answers` | `true`/`false` | `true` |
+| `indent` | `0`, `1`, `2` | `0` |
 
 ### Finding Bank IDs
 

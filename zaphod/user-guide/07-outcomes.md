@@ -24,7 +24,6 @@ course_outcomes:
   - code: "CLO-1"
     title: "Critical Thinking"
     description: "Students will analyze problems using logical reasoning"
-    vendor_guid: "CLO-1"
     mastery_points: 3
     ratings:
       - points: 4
@@ -41,7 +40,6 @@ course_outcomes:
   - code: "CLO-2"
     title: "Communication"
     description: "Students will communicate ideas clearly in writing"
-    vendor_guid: "CLO-2"
     mastery_points: 3
     ratings:
       - points: 4
@@ -65,9 +63,11 @@ course_outcomes:
 | `code` | Yes | Short identifier (CLO-1, ILO-COMM) |
 | `title` | Yes | Outcome name |
 | `description` | No | Detailed description |
-| `vendor_guid` | Yes | Unique identifier (often same as code) |
+| `vendor_guid` | No | Unique identifier (defaults to code if omitted) |
 | `mastery_points` | No | Points needed for mastery |
 | `ratings` | No | Proficiency scale |
+
+**Note:** `vendor_guid` is used by Canvas to prevent duplicates. If you don't provide one, Zaphod uses the `code` value automatically.
 
 ---
 
