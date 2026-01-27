@@ -419,3 +419,131 @@ def get_content_hash(content: Union[str, bytes]) -> str:
 DEFAULT_TIMEOUT = (10, 30)  # 10s connect, 30s read
 UPLOAD_TIMEOUT = (10, 120)  # Longer read timeout for uploads
 MIGRATION_TIMEOUT = (10, 60)  # For migration status checks
+
+
+# ============================================================================
+# Rate Limiting for Canvas API
+# ============================================================================
+
+import time
+from collections import deque
+from threading import Lock
+
+class RateLimiter:
+    """
+    Simple rate limiter for API calls.
+    
+    Canvas typically allows ~700 requests per 10 minutes (varies by instance).
+    This provides a conservative limit to avoid hitting rate limits.
+    """
+    
+    def __init__(self, max_requests: int = 100, window_seconds: float = 60.0):
+        """
+        Initialize rate limiter.
+        
+        Args:
+            max_requests: Maximum requests allowed in window
+            window_seconds: Time window in seconds
+        """
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.timestamps: deque = deque()
+        self.lock = Lock()
+        self._slowdown_until = 0.0
+    
+    def wait_if_needed(self):
+        """
+        Wait if rate limit would be exceeded.
+        
+        Call this before making an API request.
+        """
+        with self.lock:
+            now = time.time()
+            
+            # Check if we're in slowdown mode (from rate limit response)
+            if now < self._slowdown_until:
+                sleep_time = self._slowdown_until - now
+                print(f"[rate-limit] Waiting {sleep_time:.1f}s (rate limit cooldown)")
+                time.sleep(sleep_time)
+                now = time.time()
+            
+            # Remove timestamps outside window
+            cutoff = now - self.window_seconds
+            while self.timestamps and self.timestamps[0] < cutoff:
+                self.timestamps.popleft()
+            
+            # Check if at limit
+            if len(self.timestamps) >= self.max_requests:
+                # Wait until oldest request is outside window
+                sleep_time = self.timestamps[0] - cutoff + 0.1
+                if sleep_time > 0:
+                    print(f"[rate-limit] Waiting {sleep_time:.1f}s to stay under limit")
+                    time.sleep(sleep_time)
+                    now = time.time()
+                    # Clean up again
+                    cutoff = now - self.window_seconds
+                    while self.timestamps and self.timestamps[0] < cutoff:
+                        self.timestamps.popleft()
+            
+            # Record this request
+            self.timestamps.append(now)
+    
+    def handle_rate_limit_response(self, retry_after: float = 60.0):
+        """
+        Handle a rate limit response from Canvas.
+        
+        Call this when you receive a 403 rate limit error.
+        
+        Args:
+            retry_after: Seconds to wait (from X-Rate-Limit-Remaining or default)
+        """
+        with self.lock:
+            self._slowdown_until = time.time() + retry_after
+            print(f"[rate-limit] Canvas rate limit hit, backing off for {retry_after}s")
+    
+    def check_response_headers(self, headers: dict):
+        """
+        Check Canvas API response headers for rate limit info.
+        
+        Args:
+            headers: Response headers dict
+        """
+        remaining = headers.get('X-Rate-Limit-Remaining')
+        if remaining is not None:
+            try:
+                remaining = float(remaining)
+                if remaining < 50:
+                    # Getting low, slow down
+                    slowdown = max(1.0, (50 - remaining) / 10)
+                    print(f"[rate-limit] Low rate limit remaining ({remaining}), adding {slowdown:.1f}s delay")
+                    time.sleep(slowdown)
+            except (ValueError, TypeError):
+                pass
+
+
+# Global rate limiter instance
+_canvas_rate_limiter: RateLimiter | None = None
+
+
+def get_rate_limiter() -> RateLimiter:
+    """Get the global Canvas API rate limiter."""
+    global _canvas_rate_limiter
+    if _canvas_rate_limiter is None:
+        # Conservative defaults: 100 requests per minute
+        _canvas_rate_limiter = RateLimiter(max_requests=100, window_seconds=60.0)
+    return _canvas_rate_limiter
+
+
+def rate_limited_request(func):
+    """
+    Decorator to add rate limiting to API request functions.
+    
+    Usage:
+        @rate_limited_request
+        def my_api_call():
+            return requests.get(...)
+    """
+    def wrapper(*args, **kwargs):
+        get_rate_limiter().wait_if_needed()
+        return func(*args, **kwargs)
+    return wrapper

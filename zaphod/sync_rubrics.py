@@ -67,8 +67,48 @@ PAGES_DIR = COURSE_ROOT / "pages"  # Legacy fallback
 RUBRICS_DIR = COURSE_ROOT / "rubrics"
 RUBRIC_ROWS_DIR = RUBRICS_DIR / "rows"
 
+# Outcome mapping locations
+OUTCOME_MAP_PATHS = [
+    COURSE_ROOT / "_course_metadata" / "outcome_map.json",
+    COURSE_ROOT / "outcomes" / "outcome_map.json",
+]
+
 # New: placeholder pattern for row includes
 RUBRIC_ROW_REF_RE = re.compile(r"^\s*\{\{\s*rubric_row:([a-zA-Z0-9_\-]+)\s*\}\}\s*$")
+
+# Cache for outcome map (loaded once per run)
+_outcome_map_cache: Dict[str, int] | None = None
+
+
+def load_outcome_map() -> Dict[str, int]:
+    """
+    Load outcome map that translates outcome codes (e.g., CLO1) to Canvas outcome IDs.
+    
+    Searches in:
+    1. _course_metadata/outcome_map.json
+    2. outcomes/outcome_map.json
+    
+    Returns:
+        Dict mapping outcome codes to Canvas outcome IDs
+    """
+    global _outcome_map_cache
+    if _outcome_map_cache is not None:
+        return _outcome_map_cache
+    
+    for path in OUTCOME_MAP_PATHS:
+        if path.is_file():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    # Convert all values to int
+                    _outcome_map_cache = {str(k): int(v) for k, v in data.items()}
+                    print(f"[rubrics] Loaded outcome map from {path} ({len(_outcome_map_cache)} outcomes)")
+                    return _outcome_map_cache
+            except Exception as e:
+                print(f"[rubrics:warn] Failed to load outcome map from {path}: {e}")
+    
+    _outcome_map_cache = {}
+    return _outcome_map_cache
 
 
 def get_content_dir() -> Path:
@@ -425,6 +465,7 @@ def build_rubric_payload(
         c_long = crit.get("long_description", "")
         c_points = crit.get("points")
         c_use_range = bool(crit.get("use_range", False))
+        c_outcome_code = crit.get("outcome_code")  # NEW: outcome alignment
         ratings = crit.get("ratings") or []
 
         if c_desc is None or c_points is None or not ratings:
@@ -437,6 +478,17 @@ def build_rubric_payload(
         data[f"{base}[long_description]"] = str(c_long)
         data[f"{base}[points]"] = str(c_points)
         data[f"{base}[criterion_use_range]"] = "1" if c_use_range else "0"
+        
+        # NEW: Add learning outcome association if outcome_code is specified
+        if c_outcome_code:
+            outcome_map = load_outcome_map()
+            outcome_id = outcome_map.get(str(c_outcome_code))
+            if outcome_id:
+                data[f"{base}[learning_outcome_id]"] = str(outcome_id)
+                print(f"    [outcome] Criterion '{c_desc}' aligned to {c_outcome_code} (ID {outcome_id})")
+            else:
+                print(f"    [outcome:warn] Criterion '{c_desc}' references unknown outcome '{c_outcome_code}'")
+                print(f"                   Add it to outcome_map.json: {{\"{c_outcome_code}\": <canvas_outcome_id>}}")
 
         for j, rating in enumerate(ratings):
             r_desc = rating.get("description")
@@ -465,15 +517,29 @@ def create_rubric_via_api(
 ) -> Dict[str, Any]:
     """
     POST /api/v1/courses/:course_id/rubrics using the provided payload.
+    
+    Includes rate limiting to avoid hitting Canvas API limits.
     """
+    from zaphod.security_utils import get_rate_limiter, mask_sensitive, DEFAULT_TIMEOUT
+    
+    # Rate limit check
+    get_rate_limiter().wait_if_needed()
+    
     api_url, api_key = get_api_url_and_key()
     url = f"{api_url}/api/v1/courses/{course_id}/rubrics"
     headers = {"Authorization": f"Bearer {api_key}"}
 
-    resp = requests.post(url, headers=headers, data=payload)
+    resp = requests.post(url, headers=headers, data=payload, timeout=DEFAULT_TIMEOUT)
+    
+    # Check rate limit headers
+    get_rate_limiter().check_response_headers(dict(resp.headers))
 
     if resp.status_code in (200, 201):
         return resp.json()
+
+    if resp.status_code == 403 and 'rate limit' in resp.text.lower():
+        get_rate_limiter().handle_rate_limit_response()
+        raise RuntimeError("Rate limit exceeded. Please wait and try again.")
 
     if resp.status_code in (401, 403):
         raise RuntimeError("Not authorized to create rubrics (token/role lacks permission).")
