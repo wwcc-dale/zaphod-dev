@@ -50,11 +50,11 @@ class Issue:
         if self.line:
             loc += f":{self.line}"
         
-        icon = {"error": "✗", "warning": "⚠", "info": "ℹ"}[self.severity.value]
+        icon = {"error": "âœ—", "warning": "âš ", "info": "â„¹"}[self.severity.value]
         msg = f"  {icon} {self.message}"
         
         if self.suggestion:
-            msg += f"\n    → {self.suggestion}"
+            msg += f"\n    â†’ {self.suggestion}"
         
         return msg
 
@@ -85,7 +85,7 @@ class ValidationResult:
         w = len(self.warnings)
         
         if e == 0 and w == 0:
-            return f"✓ All {self.files_checked} files valid!"
+            return f"âœ“ All {self.files_checked} files valid!"
         
         parts = []
         if e > 0:
@@ -106,12 +106,20 @@ class CourseValidator:
     
     def __init__(self, course_path: Path):
         self.course_path = course_path
-        self.pages_dir = course_path / "pages"
+        
+        # Support both content/ and pages/ directories
+        content_dir = course_path / "content"
+        pages_dir = course_path / "pages"
+        self.content_dir = content_dir if content_dir.exists() else pages_dir
+        
         self.outcomes_dir = course_path / "outcomes"
         self.quiz_banks_dir = course_path / "quiz-banks"
         self.modules_dir = course_path / "modules"
+        
+        # Include directories: shared/ (new) and includes/ (legacy)
         self.includes_dirs = [
-            course_path / "pages" / "includes",
+            course_path / "shared",
+            self.content_dir / "includes",
             course_path / "includes",
         ]
         
@@ -171,9 +179,9 @@ class CourseValidator:
         result = ValidationResult()
         
         # Validate content folders
-        if self.pages_dir.exists():
+        if self.content_dir.exists():
             for ext in [".page", ".assignment", ".link", ".file"]:
-                for folder in self.pages_dir.rglob(f"*{ext}"):
+                for folder in self.content_dir.rglob(f"*{ext}"):
                     if folder.is_dir():
                         self._validate_content_folder(folder, result)
                         result.files_checked += 1
@@ -408,7 +416,7 @@ class CourseValidator:
                     file=file_path,
                     message=f"Include not found: '{{{{include:{name}}}}}'",
                     severity=Severity.ERROR,
-                    suggestion=f"Create 'includes/{name}.md' or 'pages/includes/{name}.md'"
+                    suggestion=f"Create 'shared/{name}.md' or 'includes/{name}.md'"
                 ))
     
     def _validate_quiz(self, quiz_path: Path, result: ValidationResult):
@@ -605,9 +613,9 @@ def print_results(result: ValidationResult, verbose: bool = False):
     print(f"\n{result.summary()}")
     
     if result.is_valid:
-        print("✓ Course is ready to sync!")
+        print("âœ“ Course is ready to sync!")
     else:
-        print("✗ Fix errors before syncing.")
+        print("âœ— Fix errors before syncing.")
 
 
 # CLI integration

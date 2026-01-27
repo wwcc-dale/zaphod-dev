@@ -62,13 +62,22 @@ from zaphod.config_utils import get_course_id
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 COURSE_ROOT = Path.cwd()
-PAGES_DIR = COURSE_ROOT / "pages"
+CONTENT_DIR = COURSE_ROOT / "content"
+PAGES_DIR = COURSE_ROOT / "pages"  # Legacy fallback
 ASSETS_DIR = COURSE_ROOT / "assets"
 QUIZ_BANKS_DIR = COURSE_ROOT / "quiz-banks"
 OUTCOMES_DIR = COURSE_ROOT / "outcomes"
 MODULES_DIR = COURSE_ROOT / "modules"
 RUBRICS_DIR = COURSE_ROOT / "rubrics"
 EXPORTS_DIR = COURSE_ROOT / "exports"
+
+
+def get_content_dir() -> Path:
+    """Get content directory, preferring content/ over pages/."""
+    if CONTENT_DIR.exists():
+        return CONTENT_DIR
+    return PAGES_DIR
+
 
 # Common Cartridge namespaces
 NS = {
@@ -181,15 +190,16 @@ def add_text_element(parent: ET.Element, tag: str, text: str, **attribs) -> ET.E
 # ============================================================================
 
 def load_content_items() -> List[ContentItem]:
-    """Load all content items from pages/ directory."""
+    """Load all content items from content/ (or pages/) directory."""
     items = []
     
-    if not PAGES_DIR.exists():
-        print("[cartridge:warn] No pages directory found")
+    content_dir = get_content_dir()
+    if not content_dir.exists():
+        print("[cartridge:warn] No content directory found")
         return items
     
     for ext in [".page", ".assignment", ".link", ".file"]:
-        for folder in PAGES_DIR.rglob(f"*{ext}"):
+        for folder in content_dir.rglob(f"*{ext}"):
             if not folder.is_dir():
                 continue
             
@@ -1124,7 +1134,7 @@ def build_cartridge(export: CartridgeExport, output_path: Path):
                     arcname = file_path.relative_to(temp_dir)
                     zf.write(file_path, arcname)
         
-        print(f"\n[cartridge] âœ“ Created {output_path}")
+        print(f"\n[cartridge] Ã¢Å“â€œ Created {output_path}")
         print(f"[cartridge]   Size: {output_path.stat().st_size / 1024:.1f} KB")
         
     finally:

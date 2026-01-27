@@ -32,10 +32,18 @@ from zaphod.errors import (
 
 # Paths relative to course root (cwd)
 COURSE_ROOT = Path.cwd()
-PAGES_DIR = COURSE_ROOT / "pages"
+CONTENT_DIR = COURSE_ROOT / "content"
+PAGES_DIR = COURSE_ROOT / "pages"  # Legacy fallback
 ASSETS_DIR = COURSE_ROOT / "assets"
 METADATA_DIR = COURSE_ROOT / "_course_metadata"
 UPLOAD_CACHE_FILE = METADATA_DIR / "upload_cache.json"
+
+
+def get_content_dir() -> Path:
+    """Get content directory, preferring content/ over pages/."""
+    if CONTENT_DIR.exists():
+        return CONTENT_DIR
+    return PAGES_DIR
 
 
 # =============================================================================
@@ -78,10 +86,11 @@ def get_changed_files() -> list[Path]:
 
 def iter_all_content_dirs():
     """
-    Yield every content folder under pages/ ending in a known extension.
+    Yield every content folder under content/ (or pages/) ending in a known extension.
     """
+    content_dir = get_content_dir()
     for ext in [".page", ".assignment", ".link", ".file"]:
-        for folder in PAGES_DIR.rglob(f"*{ext}"):
+        for folder in content_dir.rglob(f"*{ext}"):
             yield folder
 
 
@@ -101,7 +110,8 @@ def iter_changed_content_dirs(changed_files: list[Path]):
         except ValueError:
             continue
 
-        if not rel.parts or rel.parts[0] != "pages":
+        # Must be under content/ or pages/
+        if not rel.parts or rel.parts[0] not in ("content", "pages"):
             continue
 
         folder = path.parent
@@ -613,7 +623,7 @@ def bulk_upload_assets(course, cache: dict):
             content_hash = hashlib.md5(file_path.read_bytes()).hexdigest()[:12]
             cache_key = f"{course.id}:{filename}:{content_hash}"
             if cache_key in cache:
-                print(f"[bulk-upload] âœ“ {filename} (already uploaded)")
+                print(f"[bulk-upload] Ã¢Å“â€œ {filename} (already uploaded)")
                 skipped += 1
                 continue
 
@@ -621,7 +631,7 @@ def bulk_upload_assets(course, cache: dict):
             uploaded += 1
         except Exception as e:
             failed += 1
-            print(f"[bulk-upload] âœ— {filename}: {type(e).__name__}: {e}")
+            print(f"[bulk-upload] Ã¢Å“â€” {filename}: {type(e).__name__}: {e}")
 
     print(f"\n[bulk-upload] Summary: {uploaded} uploaded, {skipped} skipped, {failed} failed")
     save_upload_cache(cache)
@@ -645,8 +655,11 @@ def main():
     )
     args = parser.parse_args()
 
-    if not PAGES_DIR.exists():
-        raise SystemExit(f"No pages directory at {PAGES_DIR}")
+    content_dir = get_content_dir()
+    if not content_dir.exists():
+        raise SystemExit(f"No content directory found. Create content/ or pages/ in {COURSE_ROOT}")
+
+    print(f"[publish] Using content directory: {content_dir.name}/")
 
     # Set up Canvas API using native Zaphod client
     canvas = make_canvas_api_obj()
@@ -716,7 +729,7 @@ def main():
 
             # Publish to Canvas
             obj.publish(course, overwrite=True)
-            print(f"[âœ“ publish] {d.name}")
+            print(f"[Ã¢Å“â€œ publish] {d.name}")
             
         except Exception as e:
             print(f"[publish:err] {d.name}: {type(e).__name__}: {e}")

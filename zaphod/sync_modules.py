@@ -24,10 +24,10 @@ Module ordering (priority):
 
   2. Inferred: from directory structure if no YAML:
         pages/
-        ├── 01-Week 1.module/     -> position 1, name "Week 1"
-        ├── 02-Week 2.module/     -> position 2, name "Week 2"
-        ├── 10-Final.module/      -> position 3, name "Final"
-        └── Appendix.module/      -> position 4, name "Appendix" (no prefix)
+        â”œâ”€â”€ 01-Week 1.module/     -> position 1, name "Week 1"
+        â”œâ”€â”€ 02-Week 2.module/     -> position 2, name "Week 2"
+        â”œâ”€â”€ 10-Final.module/      -> position 3, name "Final"
+        â””â”€â”€ Appendix.module/      -> position 4, name "Appendix" (no prefix)
 
      Module folder patterns:
      - NEW: '05-Donkey Training.module' -> "Donkey Training" (sorted by 05)
@@ -81,9 +81,17 @@ from zaphod.errors import (
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 COURSE_ROOT = Path.cwd()
-PAGES_DIR = COURSE_ROOT / "pages"
+CONTENT_DIR = COURSE_ROOT / "content"
+PAGES_DIR = COURSE_ROOT / "pages"  # Legacy fallback
 COURSE_META_DIR = COURSE_ROOT / "_course_metadata"
 MODULE_ORDER_PATH = COURSE_ROOT / "modules" / "module_order.yaml"
+
+
+def get_content_dir() -> Path:
+    """Get content directory, preferring content/ over pages/."""
+    if CONTENT_DIR.exists():
+        return CONTENT_DIR
+    return PAGES_DIR
 
 
 # ---------- changed-files helpers ----------
@@ -130,12 +138,13 @@ def get_folder_sort_key(folder: Path, meta: dict = None) -> tuple:
 
 def iter_all_content_dirs():
     """
-    Yield every content folder under pages/ ending in one of the known extensions.
+    Yield every content folder under content/ (or pages/) ending in one of the known extensions.
     Folders are sorted by position/prefix for predictable module ordering.
     """
+    content_dir = get_content_dir()
     folders = []
     for ext in (".page", ".assignment", ".file", ".link", ".quiz"):
-        for folder in PAGES_DIR.rglob(f"*{ext}"):
+        for folder in content_dir.rglob(f"*{ext}"):
             folders.append(folder)
     
     # Sort by folder name prefix/position
@@ -154,8 +163,8 @@ def iter_changed_content_dirs(changed_files: list[Path]):
 
     Rules:
     - Trigger on index.md, source.md, or meta.json changes.
-    - Must live under pages/**.
-    - Parent folder must end with .page / .assignment / .file / .link.
+    - Must live under content/ or pages/.
+    - Parent folder must end with .page / .assignment / .file / .link / .quiz.
     
     Results are sorted by position/prefix for predictable module ordering.
     """
@@ -172,7 +181,8 @@ def iter_changed_content_dirs(changed_files: list[Path]):
         except ValueError:
             continue
 
-        if not rel.parts or rel.parts[0] != "pages":
+        # Must be under content/ or pages/
+        if not rel.parts or rel.parts[0] not in ("content", "pages"):
             continue
 
         folder = path.parent
@@ -540,11 +550,12 @@ def infer_module_order_from_directories() -> list[str]:
     
     module_folders = []
     
-    if not PAGES_DIR.exists():
+    content_dir = get_content_dir()
+    if not content_dir.exists():
         return []
     
     # Scan for module folders (both patterns)
-    for item in PAGES_DIR.iterdir():
+    for item in content_dir.iterdir():
         if not item.is_dir():
             continue
         
@@ -751,8 +762,11 @@ def main():
     canvas = get_canvas()
     course = canvas.get_course(int(course_id))
 
-    if not PAGES_DIR.exists():
-        raise SystemExit(f"No pages directory at {PAGES_DIR}")
+    content_dir = get_content_dir()
+    if not content_dir.exists():
+        raise SystemExit(f"No content directory found. Create content/ or pages/ in {COURSE_ROOT}")
+
+    print(f"[modules] Using content directory: {content_dir.name}/")
 
     desired_module_order = load_module_order()
 

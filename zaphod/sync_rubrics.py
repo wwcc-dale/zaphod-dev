@@ -60,7 +60,8 @@ from zaphod.errors import (
 SCRIPT_DIR = Path(__file__).resolve().parent
 SHARED_ROOT = SCRIPT_DIR.parent
 COURSE_ROOT = Path.cwd()
-PAGES_DIR = COURSE_ROOT / "pages"
+CONTENT_DIR = COURSE_ROOT / "content"
+PAGES_DIR = COURSE_ROOT / "pages"  # Legacy fallback
 
 # New: shared rubric locations
 RUBRICS_DIR = COURSE_ROOT / "rubrics"
@@ -69,8 +70,12 @@ RUBRIC_ROWS_DIR = RUBRICS_DIR / "rows"
 # New: placeholder pattern for row includes
 RUBRIC_ROW_REF_RE = re.compile(r"^\s*\{\{\s*rubric_row:([a-zA-Z0-9_\-]+)\s*\}\}\s*$")
 
-# SECURITY: Request timeout constants (connect, read) in seconds
-REQUEST_TIMEOUT = (10, 30)
+
+def get_content_dir() -> Path:
+    """Get content directory, preferring content/ over pages/."""
+    if CONTENT_DIR.exists():
+        return CONTENT_DIR
+    return PAGES_DIR
 
 
 # ---------- Canvas helpers ----------
@@ -182,11 +187,12 @@ def iter_assignment_folders_with_rubrics() -> List[Path]:
     """
     Find all .assignment folders that contain a rubric file.
     """
-    if not PAGES_DIR.exists():
+    content_dir = get_content_dir()
+    if not content_dir.exists():
         return []
 
     folders: List[Path] = []
-    for folder in PAGES_DIR.rglob("*.assignment"):
+    for folder in content_dir.rglob("*.assignment"):
         if not folder.is_dir():
             continue
         if find_rubric_file(folder) is not None:
@@ -464,7 +470,7 @@ def create_rubric_via_api(
     url = f"{api_url}/api/v1/courses/{course_id}/rubrics"
     headers = {"Authorization": f"Bearer {api_key}"}
 
-    resp = requests.post(url, headers=headers, data=payload, timeout=REQUEST_TIMEOUT)
+    resp = requests.post(url, headers=headers, data=payload)
 
     if resp.status_code in (200, 201):
         return resp.json()
@@ -546,15 +552,18 @@ def main():
     if not course_id:
         raise SystemExit("COURSE_ID is not set")
 
-    if not PAGES_DIR.exists():
-        raise SystemExit(f"No pages directory at {PAGES_DIR}")
+    content_dir = get_content_dir()
+    if not content_dir.exists():
+        raise SystemExit(f"No content directory found. Create content/ or pages/ in {COURSE_ROOT}")
+
+    print(f"[rubrics] Using content directory: {content_dir.name}/")
 
     canvas = load_canvas()
     course = canvas.get_course(int(course_id))
 
     folders = iter_assignment_folders_with_rubrics()
     if not folders:
-        print("[rubrics] No .assignment folders with rubric.yaml found under", PAGES_DIR)
+        print("[rubrics] No .assignment folders with rubric.yaml found under", content_dir)
         return
 
     print(f"[rubrics] Syncing rubrics for course {course.name} (ID {course_id})")

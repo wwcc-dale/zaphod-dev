@@ -53,18 +53,24 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 SHARED_ROOT = SCRIPT_DIR.parent
 COURSES_ROOT = SHARED_ROOT.parent
 COURSE_ROOT = Path.cwd()
-PAGES_DIR = COURSE_ROOT / "pages"
+CONTENT_DIR = COURSE_ROOT / "content"
+PAGES_DIR = COURSE_ROOT / "pages"  # Legacy fallback
 MODULE_ORDER_PATH = COURSE_ROOT / "modules" / "module_order.yaml"
 
-# Auto-generated work files that should be cleaned up
-# These are created by frontmatter_to_meta.py and publish_all.py
+
+def get_content_dir() -> Path:
+    """Get content directory, preferring content/ over pages/."""
+    if CONTENT_DIR.exists():
+        return CONTENT_DIR
+    return PAGES_DIR
+
+
 AUTO_WORK_FILES = {
-    "meta.json",           # Generated from frontmatter
-    "source.md",           # Generated HTML-ready source  
-    "styled_source.md",    # Legacy styled output
+    "styled_source.md",
     "extra_styled_source.md",
     "extra_styled_source.html",
     "result.html",
+    "source.md",
 }
 
 
@@ -92,8 +98,9 @@ def load_local_meta_maps():
     link_modules_by_url = {}
     quiz_modules_by_name = {}
 
-    if not PAGES_DIR.exists():
-        print(f"[prune] No pages directory at {PAGES_DIR}")
+    content_dir = get_content_dir()
+    if not content_dir.exists():
+        print(f"[prune] No content directory found")
         return (
             page_modules_by_title,
             assignment_modules_by_name,
@@ -102,7 +109,7 @@ def load_local_meta_maps():
             quiz_modules_by_name,
         )
 
-    for meta_path in PAGES_DIR.rglob("meta.json"):
+    for meta_path in content_dir.rglob("meta.json"):
         try:
             data = json.loads(meta_path.read_text(encoding="utf-8"))
         except Exception as e:
@@ -159,11 +166,12 @@ def load_local_names():
     assignment_names = set()
     quiz_names = set()
 
-    if not PAGES_DIR.exists():
-        print(f"[prune] No pages directory at {PAGES_DIR}")
+    content_dir = get_content_dir()
+    if not content_dir.exists():
+        print(f"[prune] No content directory found")
         return page_names, assignment_names, quiz_names
 
-    for index_path in PAGES_DIR.rglob("index.md"):
+    for index_path in content_dir.rglob("index.md"):
         try:
             post = frontmatter.load(index_path)
             meta = dict(post.metadata)
@@ -351,10 +359,11 @@ def get_modules_from_directories() -> set[str]:
     
     module_names = set()
     
-    if not PAGES_DIR.exists():
+    content_dir = get_content_dir()
+    if not content_dir.exists():
         return module_names
     
-    for item in PAGES_DIR.iterdir():
+    for item in content_dir.iterdir():
         if not item.is_dir():
             continue
         
@@ -451,14 +460,15 @@ def write_module_order_yaml(course):
 
 def cleanup_work_files():
     """
-    Remove auto-generated work files under pages/ to keep the repo clean.
+    Remove auto-generated work files under content/ (or pages/) to keep the repo clean.
     """
-    if not PAGES_DIR.exists():
+    content_dir = get_content_dir()
+    if not content_dir.exists():
         return
 
     print("\n[prune] Cleaning up auto-generated work files...")
     removed = 0
-    for f in PAGES_DIR.rglob("*"):
+    for f in content_dir.rglob("*"):
         if f.is_file() and f.name in AUTO_WORK_FILES:
             try:
                 f.unlink()

@@ -40,7 +40,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 SHARED_ROOT = SCRIPT_DIR.parent
 COURSES_ROOT = SHARED_ROOT.parent
 COURSE_ROOT = Path.cwd()
-PAGES_DIR = COURSE_ROOT / "pages"
+CONTENT_DIR = COURSE_ROOT / "content"
+PAGES_DIR = COURSE_ROOT / "pages"  # Legacy fallback
 MODULE_ORDER_PATH = COURSE_ROOT / "modules" / "module_order.yaml"
 
 # Centralized metadata directory for all course state
@@ -54,6 +55,13 @@ DEBOUNCE_SECONDS = 2.0
 
 # Prevent overlapping runs
 PIPELINE_RUNNING = False
+
+
+def get_content_dir() -> Path:
+    """Get content directory, preferring content/ over pages/."""
+    if CONTENT_DIR.exists():
+        return CONTENT_DIR
+    return PAGES_DIR
 
 
 def find_python_executable() -> str:
@@ -330,8 +338,9 @@ class MarkdownChangeHandler(PatternMatchingEventHandler):
 # ---------- main ----------
 
 def main():
-    if not PAGES_DIR.is_dir():
-        raise SystemExit(f"pages/ directory not found under {COURSE_ROOT}")
+    content_dir = get_content_dir()
+    if not content_dir.is_dir():
+        raise SystemExit(f"content/ or pages/ directory not found under {COURSE_ROOT}")
 
     fence("WATCH")
     
@@ -344,13 +353,13 @@ def main():
     observer.schedule(handler, str(COURSE_ROOT), recursive=True)
     observer.start()
 
-    print(f"[watch] WATCHING: {PAGES_DIR} (index.md only)")
+    print(f"[watch] WATCHING: {content_dir} (index.md only)")
     print(f"[watch] COURSE_ROOT: {COURSE_ROOT}")
     print(f"[watch] STATE_FILE: {STATE_FILE}\n")
 
     # Run initial full sync on startup
     print("[watch] Running initial full sync...")
-    all_index_files = list(PAGES_DIR.rglob("index.md"))
+    all_index_files = list(content_dir.rglob("index.md"))
     if all_index_files:
         run_pipeline(all_index_files)
         set_last_run_time(time.time())
