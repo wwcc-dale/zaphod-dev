@@ -24,19 +24,21 @@ Instead of copying this text to every page (and updating 20 files when it change
 
 ### 1. Create an Include File
 
-Create a file in your `includes/` folder:
+Create a markdown file in your `shared/` folder:
 
 ```
 my-course/
-└── includes/
-    └── late_policy.md
+└── shared/
+    ├── variables.yaml
+    └── late_policy.md       # Include file
 ```
 
-**includes/late_policy.md:**
+**shared/late_policy.md:**
 ```markdown
 ## Late Work Policy
 
-Assignments submitted late will receive a 10% penalty per day, up to a maximum of 3 days. After 3 days, late submissions will not be accepted without prior arrangement.
+Assignments submitted late will receive a {{var:late_penalty}} penalty.
+After 3 days, late submissions will not be accepted without prior arrangement.
 
 If you need an extension, please contact the instructor **before** the due date.
 ```
@@ -57,7 +59,7 @@ Write a 500-word essay...
 
 ### 3. Result
 
-The `{{include:late_policy}}` is replaced with the entire contents of `late_policy.md`.
+The `{{include:late_policy}}` is replaced with the entire contents of `late_policy.md`, with any `{{var:...}}` placeholders filled in.
 
 ---
 
@@ -67,230 +69,239 @@ The `{{include:late_policy}}` is replaced with the entire contents of `late_poli
 {{include:name}}
 ```
 
-- `name` corresponds to `includes/name.md`
+- `name` corresponds to `shared/name.md`
 - Names can contain letters, numbers, underscores, and hyphens
 - The `.md` extension is added automatically
 
 ---
 
-## Where to Put Include Files
+## Where Include Files Are Found
 
-Includes are searched in this order:
+Includes are searched in this order (first match wins):
 
-### 1. Course Pages Includes (Highest Priority)
-
-```
-my-course/
-└── pages/
-    └── includes/
-        └── late_policy.md    # Found first
-```
-
-### 2. Course Root Includes
+### 1. Course Shared Folder (highest priority)
 
 ```
 my-course/
-└── includes/
-    └── late_policy.md        # Found second
+└── shared/
+    └── late_policy.md
 ```
 
-### 3. Shared Across All Courses (Lowest Priority)
+### 2. Global Shared Folder
 
 ```
 courses/
 ├── _all_courses/
-│   └── includes/
-│       └── late_policy.md    # Found last (fallback)
-├── CS101/
-└── CS102/
+│   └── shared/
+│       └── academic_integrity.md    # Available to all courses
+└── my-course/
 ```
 
-This lets you:
-- Share common content across all courses
-- Override at the course level when needed
-- Override at the page level for special cases
+### 3. Legacy Locations (backward compatibility)
+
+For existing courses using older folder names:
+- `<course>/content/includes/name.md` (or `pages/includes/`)
+- `<course>/includes/name.md`
+- `_all_courses/includes/name.md`
 
 ---
 
 ## Variables in Includes
 
-Includes can use variables! The variables come from the page that's using the include.
+Includes can use variables! This makes them dynamic templates.
 
-**includes/contact_info.md:**
+**shared/contact_info.md:**
 ```markdown
-## Contact Your Instructor
+## Contact Information
 
-- **Name:** {{var:instructor_name}}
+- **Instructor:** {{var:instructor_name}}
 - **Email:** {{var:instructor_email}}
 - **Office Hours:** {{var:office_hours}}
+- **Office:** {{var:instructor_office}}
 ```
 
-**pages/syllabus.page/index.md:**
+**shared/variables.yaml:**
 ```yaml
----
-name: "Syllabus"
 instructor_name: "Dr. Smith"
 instructor_email: "smith@university.edu"
-office_hours: "Monday/Wednesday 2-4pm"
+office_hours: "MW 2-4pm"
+instructor_office: "Room 301"
+```
+
+**Your page:**
+```markdown
+---
+name: "Syllabus"
 ---
 
-# Course Syllabus
+# Syllabus
 
 {{include:contact_info}}
+
+## Course Description
+...
 ```
 
 **Result:**
 ```markdown
-# Course Syllabus
+# Syllabus
 
-## Contact Your Instructor
+## Contact Information
 
-- **Name:** Dr. Smith
+- **Instructor:** Dr. Smith
 - **Email:** smith@university.edu
-- **Office Hours:** Monday/Wednesday 2-4pm
+- **Office Hours:** MW 2-4pm
+- **Office:** Room 301
+
+## Course Description
+...
 ```
+
+---
+
+## Override Variables Per Page
+
+Page frontmatter can override variables used by includes:
+
+**shared/contact_info.md:**
+```markdown
+Today's instructor: {{var:instructor_name}}
+```
+
+**Guest lecture page:**
+```yaml
+---
+name: "Guest Lecture"
+instructor_name: "Dr. Jones"    # Override for this page
+---
+
+{{include:contact_info}}
+```
+
+**Result:** "Today's instructor: Dr. Jones"
 
 ---
 
 ## Nested Includes
 
-Includes can contain other includes (recursive):
+Includes can contain other includes:
 
-**includes/policies.md:**
+**shared/footer.md:**
 ```markdown
-## Course Policies
-
-{{include:late_policy}}
-
-{{include:academic_integrity}}
-
-{{include:attendance_policy}}
-```
-
-**Your page:**
-```markdown
-{{include:policies}}
-```
-
-This pulls in all three policy files through one include.
-
 ---
-
-## Common Include Patterns
-
-### Policy Statements
-
-```
-includes/
-├── academic_integrity.md
-├── accommodation_statement.md
-├── attendance_policy.md
-├── grading_scale.md
-└── late_policy.md
-```
-
-### Contact Blocks
-
-```
-includes/
-├── contact_instructor.md
-├── contact_ta.md
-├── office_hours.md
-└── tutoring_info.md
-```
-
-### Assignment Templates
-
-```
-includes/
-├── submission_instructions.md
-├── file_naming_convention.md
-└── peer_review_guidelines.md
-```
-
-### Reusable Warnings/Notes
-
-```
-includes/
-├── important_deadline.md
-├── required_reading.md
-└── technology_requirements.md
-```
-
----
-
-## Example: Building a Syllabus
-
-**includes/course_description.md:**
-```markdown
-## Course Description
-
-This course introduces fundamental concepts of computer programming...
-```
-
-**includes/learning_objectives.md:**
-```markdown
-## Learning Objectives
-
-By the end of this course, you will be able to:
-
-1. Write simple programs in Python
-2. Debug and test your code
-3. ...
-```
-
-**pages/syllabus.page/index.md:**
-```yaml
----
-name: "Course Syllabus"
-instructor_name: "Dr. Smith"
-office_hours: "MW 2-4pm"
----
-
-# CS 101 Syllabus
-
-{{include:course_description}}
-
-{{include:learning_objectives}}
 
 {{include:contact_info}}
 
-{{include:policies}}
-
-{{include:grading_scale}}
+{{include:academic_integrity}}
 ```
 
-One syllabus page, built from reusable pieces!
+Zaphod expands them recursively.
+
+---
+
+## Common Includes
+
+### Contact Information
+```markdown
+<!-- shared/contact_info.md -->
+**Instructor:** {{var:instructor_name}}  
+**Email:** {{var:instructor_email}}  
+**Office:** {{var:instructor_office}}  
+**Office Hours:** {{var:office_hours}}
+```
+
+### Late Policy
+```markdown
+<!-- shared/late_policy.md -->
+## Late Work
+
+Late submissions receive a penalty of {{var:late_penalty}}.
+After 3 days, late submissions will not be accepted without prior arrangement.
+
+If you need an extension, contact the instructor **before** the due date.
+```
+
+### Academic Integrity
+```markdown
+<!-- shared/academic_integrity.md -->
+## Academic Integrity
+
+All work must be your own. See the {{var:academic_integrity_link}} for details.
+Violations will be reported to the Dean of Students.
+```
+
+### Submission Instructions
+```markdown
+<!-- shared/submit_instructions.md -->
+## How to Submit
+
+1. Save your work as a PDF
+2. Go to the assignment page in Canvas
+3. Click "Submit Assignment"
+4. Upload your PDF file
+5. Click "Submit"
+
+You can resubmit until the deadline.
+```
+
+---
+
+## Sharing Across Courses
+
+For content shared across multiple courses, use the global shared folder:
+
+```
+courses/
+├── _all_courses/
+│   └── shared/
+│       ├── variables.yaml           # Global variables
+│       ├── academic_integrity.md    # Used by all courses
+│       └── university_resources.md
+├── CS101/
+│   └── shared/
+│       └── variables.yaml           # Course-specific variables
+└── CS102/
+```
+
+Global includes use the course's variables, so they can still be customized per course.
 
 ---
 
 ## Tips
 
+✅ **Name includes descriptively** — `late_policy` not `policy1`
+
+✅ **Use variables for customization** — Make includes flexible
+
 ✅ **Keep includes focused** — One topic per file
 
-✅ **Use clear names** — `late_policy.md` not `policy1.md`
+✅ **Use the shared/ folder** — Keeps everything organized
 
-✅ **Put shared content in _all_courses** — For institution-wide policies
-
-✅ **Use variables for customization** — Same template, different values
-
-✅ **Don't over-nest** — Keep it readable (2-3 levels max)
+✅ **Check for typos** — `{{include:late_polcy}}` won't work
 
 ---
 
-## Debugging
+## Troubleshooting
 
-If an include isn't working:
+### Include Not Found
 
-1. Check the filename matches (case-sensitive): `{{include:Late_Policy}}` ≠ `late_policy.md`
-2. Check the file exists in one of the include folders
-3. Look for warnings when running `zaphod sync`
+```
+[frontmatter:warn] essay.assignment: include 'late_policy' not found
+```
 
-Missing includes show a warning and remain as `{{include:name}}` in the output.
+1. Check the filename matches: `shared/late_policy.md`
+2. Check the include name: `{{include:late_policy}}` (no .md extension)
+3. Make sure the file exists
+
+### Variables Not Replaced in Include
+
+1. Check the variable is defined in `shared/variables.yaml` or page frontmatter
+2. Check for typos in variable names
+3. Make sure PyYAML is installed
 
 ---
 
 ## Next Steps
 
-- [Variables](03-variables.md) — Dynamic values in includes
-- [Pages](01-pages.md) — Using includes in pages
+- [Variables](03-variables.md) — Define reusable values
+- [Pages](01-pages.md) — Create content pages

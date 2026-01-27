@@ -4,11 +4,29 @@
 # Copyright (c) 2026 Dale Chapman
 # Licensed under the MIT License. See LICENSE in the project root.
 
+"""
+frontmatter_to_meta.py - Process index.md frontmatter into meta.json + source.md
+
+Features:
+- Supports both content/ (preferred) and pages/ (legacy) directories
+- Course-wide variables via shared/variables.yaml
+- Cross-course variables via _all_courses/shared/variables.yaml
+- Includes via shared/*.md files
+- Backward compatible with includes/ and pages/includes/ folders
+"""
+
 from pathlib import Path
 import json
 import os
 import re
 import frontmatter
+
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
+
 from zaphod.errors import (
     FrontmatterError,
     invalid_frontmatter_error,
@@ -20,7 +38,52 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 SHARED_ROOT = SCRIPT_DIR.parent
 COURSES_ROOT = SHARED_ROOT.parent
 COURSE_ROOT = Path.cwd()          # always "current course"
-PAGES_DIR = COURSE_ROOT / "pages" # where applicable
+
+
+# =============================================================================
+# Content and Shared Directory Resolution
+# =============================================================================
+
+def get_content_dir() -> Path:
+    """
+    Get the content directory for this course.
+    
+    Checks in order:
+    1. content/ (preferred)
+    2. pages/ (legacy, backward compatible)
+    
+    Returns the first directory that exists, or content/ if neither exists.
+    """
+    content_dir = COURSE_ROOT / "content"
+    pages_dir = COURSE_ROOT / "pages"
+    
+    if content_dir.exists():
+        return content_dir
+    if pages_dir.exists():
+        return pages_dir
+    return content_dir  # Default for new courses
+
+
+def get_content_dir_name() -> str:
+    """Get just the name of the content directory ('content' or 'pages')."""
+    return get_content_dir().name
+
+
+# Module-level for use in other functions (set in main)
+_CONTENT_DIR = None
+
+
+def _get_cached_content_dir() -> Path:
+    """Lazy getter for cached content directory."""
+    global _CONTENT_DIR
+    if _CONTENT_DIR is None:
+        _CONTENT_DIR = get_content_dir()
+    return _CONTENT_DIR
+
+
+# =============================================================================
+# Module Inference from Path
+# =============================================================================
 
 
 def infer_module_from_path(folder: Path) -> str | None:
@@ -41,21 +104,12 @@ def infer_module_from_path(folder: Path) -> str | None:
          - 'module-Credit 1' -> 'Credit 1'
     
     Returns the module name, or None if no module directory is found
-    before reaching PAGES_DIR.
-    
-    If multiple module directories exist in the path, returns the closest
-    (innermost) one.
-    
-    Examples:
-        pages/05-Week 1.module/intro.page/           -> "Week 1"
-        pages/Credit 1.module/assignment1.assignment/ -> "Credit 1"
-        pages/module-Credit 1/assignment1.assignment/ -> "Credit 1" (legacy)
-        pages/05-Walking your Catfish/intro.page/    -> None (no .module suffix)
-        pages/intro.page/                            -> None
+    before reaching the content root.
     """
+    content_root = get_content_dir()
     current = folder.parent  # start with parent of content folder
     
-    while current != PAGES_DIR and current != current.parent:
+    while current != content_root and current != current.parent:
         name = current.name
         name_lower = name.lower()
         
@@ -88,6 +142,108 @@ VAR_RE = re.compile(r"\{\{var:([a-zA-Z_][a-zA-Z0-9_-]*)\}\}")
 INCLUDE_RE = re.compile(r"\{\{include:([a-zA-Z_][a-zA-Z0-9_-]*)\}\}")
 
 
+# =============================================================================
+# Variables Loading
+# =============================================================================
+
+def load_shared_variables() -> dict:
+    """
+    Load variables from shared/variables.yaml files with 3-tier precedence.
+    
+    Loading order (later overrides earlier):
+    1. _all_courses/shared/variables.yaml (global defaults)
+    2. <course>/shared/variables.yaml (course-specific)
+    
+    Page frontmatter overrides both (applied in process_folder).
+    """
+    if not YAML_AVAILABLE:
+        return {}
+    
+    variables = {}
+    
+    # Tier 1: _all_courses/shared/variables.yaml (lowest priority)
+    all_courses_paths = [
+        COURSES_ROOT.parent / "_all_courses" / "shared" / "variables.yaml",
+        COURSES_ROOT.parent / "_all_courses" / "shared" / "variables.yml",
+    ]
+    for path in all_courses_paths:
+        if path.is_file():
+            try:
+                data = yaml.safe_load(path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    variables.update(data)
+                    print(f"[variables] Loaded global variables from {path}")
+            except Exception as e:
+                print(f"[variables:warn] Failed to load {path}: {e}")
+            break
+    
+    # Tier 2: <course>/shared/variables.yaml (course-specific, overrides global)
+    course_paths = [
+        COURSE_ROOT / "shared" / "variables.yaml",
+        COURSE_ROOT / "shared" / "variables.yml",
+    ]
+    for path in course_paths:
+        if path.is_file():
+            try:
+                data = yaml.safe_load(path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    variables.update(data)
+                    print(f"[variables] Loaded course variables from {path}")
+            except Exception as e:
+                print(f"[variables:warn] Failed to load {path}: {e}")
+            break
+    
+    return variables
+
+
+# Cache for shared variables (loaded once per run)
+_shared_variables_cache: dict | None = None
+
+
+def get_shared_variables() -> dict:
+    """Get shared variables, loading them once and caching."""
+    global _shared_variables_cache
+    if _shared_variables_cache is None:
+        _shared_variables_cache = load_shared_variables()
+    return _shared_variables_cache
+
+
+# =============================================================================
+# Includes Resolution
+# =============================================================================
+
+def resolve_include_path(folder: Path, name: str) -> Path | None:
+    """
+    Resolve an include name to a concrete file path following precedence:
+    
+    NEW (preferred):
+    1) <course>/shared/name.md
+    2) <root>/_all_courses/shared/name.md
+    
+    LEGACY (backward compatibility):
+    3) <course>/content/includes/name.md (or pages/includes/)
+    4) <course>/includes/name.md
+    5) <root>/_all_courses/includes/name.md
+    """
+    content_root = get_content_dir()
+    
+    candidates = [
+        # NEW: shared/ folder (preferred)
+        COURSE_ROOT / "shared" / f"{name}.md",
+        COURSES_ROOT.parent / "_all_courses" / "shared" / f"{name}.md",
+        
+        # LEGACY: includes/ folders (backward compatibility)
+        content_root / "includes" / f"{name}.md",
+        COURSE_ROOT / "includes" / f"{name}.md",
+        COURSES_ROOT.parent / "_all_courses" / "includes" / f"{name}.md",
+    ]
+    
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
 def interpolate_body(body: str, metadata: dict) -> str:
     """
     Replace {{var:key}} in the body with corresponding values from metadata.
@@ -102,28 +258,10 @@ def interpolate_body(body: str, metadata: dict) -> str:
     return VAR_RE.sub(replace, body)
 
 
-def resolve_include_path(folder: Path, name: str) -> Path | None:
-    """
-    Resolve an include name to a concrete file path following precedence:
-    1) <course>/pages/includes/name.md
-    2) <course>/includes/name.md
-    3) <root>/_all_courses/includes/name.md
-    """
-    candidates = [
-        COURSE_ROOT / "pages" / "includes" / f"{name}.md",
-        COURSE_ROOT / "includes" / f"{name}.md",
-        COURSES_ROOT.parent / "_all_courses" / "includes" / f"{name}.md",
-    ]
-    for path in candidates:
-        if path.is_file():
-            return path
-    return None
-
-
 def interpolate_includes(body: str, folder: Path, metadata: dict) -> str:
     """
     Replace {{include:name}} in the body with the contents of the first
-    matching includes/name.md, using the precedence rules above.
+    matching include file, using the precedence rules in resolve_include_path.
     Each included file is also processed with {{var:...}} interpolation.
     """
     def replace(match):
@@ -146,6 +284,10 @@ def interpolate_includes(body: str, folder: Path, metadata: dict) -> str:
     return INCLUDE_RE.sub(replace, body)
 
 
+# =============================================================================
+# Changed Files Detection (for incremental mode)
+# =============================================================================
+
 def get_changed_files() -> list[Path]:
     """
     Read ZAPHOD_CHANGED_FILES and return them as Path objects.
@@ -159,11 +301,12 @@ def get_changed_files() -> list[Path]:
 
 def iter_all_content_dirs():
     """
-    Existing full-scan behavior: yield every content folder under pages/
+    Existing full-scan behavior: yield every content folder under content/ (or pages/)
     ending in one of the known extensions.
     """
+    content_root = get_content_dir()
     for ext in [".page", ".assignment", ".link", ".file", ".quiz"]:
-        for folder in PAGES_DIR.rglob(f"*{ext}"):
+        for folder in content_root.rglob(f"*{ext}"):
             yield folder
 
 
@@ -174,8 +317,8 @@ def iter_changed_content_dirs(changed_files: list[Path]):
 
     Rules:
     - Only care about index.md files.
-    - Only if they live inside pages/** and inside a folder whose
-      name ends with one of .page / .assignment / .link / .file.
+    - Only if they live inside content/** (or pages/**) and inside a folder whose
+      name ends with one of .page / .assignment / .link / .file / .quiz.
     """
     exts = {".page", ".assignment", ".link", ".file", ".quiz"}
 
@@ -191,8 +334,8 @@ def iter_changed_content_dirs(changed_files: list[Path]):
         except ValueError:
             continue
 
-        # Must be under pages/
-        if not rel.parts or rel.parts[0] != "pages":
+        # Must be under content/ or pages/
+        if not rel.parts or rel.parts[0] not in ("content", "pages"):
             continue
 
         # Folder is the parent of index.md
@@ -206,7 +349,15 @@ def iter_changed_content_dirs(changed_files: list[Path]):
             yield folder
 
 
+# =============================================================================
+# Main Processing
+# =============================================================================
+
 def process_folder(folder: Path):
+    """
+    Process a content folder: read index.md, merge variables, expand includes,
+    and write meta.json + source.md.
+    """
     index_path = folder / "index.md"
     meta_path = folder / "meta.json"
     source_path = folder / "source.md"
@@ -219,7 +370,13 @@ def process_folder(folder: Path):
     if has_index:
         try:
             post = frontmatter.load(index_path)
-            metadata = dict(post.metadata)
+            
+            # Build metadata: shared variables < page frontmatter
+            # (page frontmatter overrides shared variables)
+            shared_vars = get_shared_variables()
+            page_metadata = dict(post.metadata)
+            metadata = {**shared_vars, **page_metadata}
+            
             content = post.content.strip() + "\n"
 
             # First: expand includes, with {{var:...}} applied to each include
@@ -270,12 +427,12 @@ def process_folder(folder: Path):
                     json.dump(metadata, f, indent=2, ensure_ascii=False)
                 with source_path.open("w", encoding="utf-8") as f:
                     f.write(content)
-                print(f"[âœ“ frontmatter] {folder.name}")
+                print(f"[✓ frontmatter] {folder.name}")
                 return
 
     # 2) Fallback: existing meta.json + source.md
     if has_meta and has_source:
-        print(f"[â†» meta.json] {folder.name}")
+        print(f"[↻ meta.json] {folder.name}")
         return
 
     # 3) Nothing usable
@@ -283,9 +440,14 @@ def process_folder(folder: Path):
 
 
 if __name__ == "__main__":
-    if not PAGES_DIR.exists():
-        raise SystemExit(f"No pages directory at {PAGES_DIR}")
+    # Set global content directory 
+    _CONTENT_DIR = get_content_dir()
+    
+    if not _CONTENT_DIR.exists():
+        raise SystemExit(f"No content directory found. Create content/ or pages/ in {COURSE_ROOT}")
 
+    print(f"[frontmatter] Using content directory: {_CONTENT_DIR.name}/")
+    
     changed_files = get_changed_files()
 
     if changed_files:

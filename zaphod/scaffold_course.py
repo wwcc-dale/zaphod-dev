@@ -5,12 +5,18 @@ scaffold_course.py (Zaphod)
 
 Create a minimal Zaphod-ready course skeleton in the current directory.
 
-- Creates pages/, modules/, outcomes/, quiz-banks/, assets/, _course_metadata/,
-  rubrics/, rubrics/rows/
-- Seeds example content folders with index.md and frontmatter
-- Seeds a shared rubric and a reusable rubric row snippet
-- Writes modules/module_order.yaml and outcomes/outcomes.yaml
-- Does not touch existing files unless --force is specified for some writes
+Creates:
+- content/           Content folders (.page, .assignment, .quiz, etc.)
+- shared/            Shared variables and includes
+- modules/           Module ordering configuration
+- outcomes/          Learning outcomes definitions
+- quiz-banks/        Question bank files
+- assets/            Shared media files
+- rubrics/           Shared rubrics and reusable rows
+- _course_metadata/  Internal state and cache files
+
+Seeds example content with index.md and frontmatter.
+Does not touch existing files unless --force is specified.
 """
 
 from __future__ import annotations
@@ -22,7 +28,9 @@ import textwrap
 
 COURSE_ROOT = Path.cwd()
 
-PAGES_DIR = COURSE_ROOT / "pages"
+# NEW: Use content/ instead of pages/
+CONTENT_DIR = COURSE_ROOT / "content"
+SHARED_DIR = COURSE_ROOT / "shared"
 MODULES_DIR = COURSE_ROOT / "modules"
 OUTCOMES_DIR = COURSE_ROOT / "outcomes"
 QUIZ_BANKS_DIR = COURSE_ROOT / "quiz-banks"
@@ -45,7 +53,11 @@ def write_file(path: Path, content: str, force: bool = False) -> None:
     print(f"[scaffold] WROTE {path.relative_to(COURSE_ROOT)}")
 
 
-PAGES_WELCOME = textwrap.dedent(
+# =============================================================================
+# Sample Content
+# =============================================================================
+
+WELCOME_PAGE = textwrap.dedent(
     """\
     ---
     type: page
@@ -55,15 +67,23 @@ PAGES_WELCOME = textwrap.dedent(
     indent: 0
     ---
     
-    # Welcome to the course
+    # Welcome to {{var:course_code}}
+    
+    Welcome to **{{var:course_title}}**, taught by {{var:instructor_name}}.
     
     This is your first Zaphod-managed Canvas page.
     
-    You can edit this file at `pages/welcome.page/index.md`.
+    ## Contact Information
+    
+    {{include:contact_info}}
+    
+    ## Getting Help
+    
+    If you have questions, please email {{var:instructor_email}}.
     """
 )
 
-PAGES_SAMPLE_ASSIGNMENT = textwrap.dedent(
+SAMPLE_ASSIGNMENT = textwrap.dedent(
     """\
     ---
     type: assignment
@@ -76,14 +96,18 @@ PAGES_SAMPLE_ASSIGNMENT = textwrap.dedent(
     indent: 0
     ---
     
-    # Sample assignment
+    # Sample Assignment
     
     Replace this content with your own assignment instructions.
+    
+    ## Late Policy
+    
+    {{include:late_policy}}
     """
 )
 
 # Assignment-local rubric wrapper that uses a shared rubric
-PAGES_SAMPLE_RUBRIC = textwrap.dedent(
+SAMPLE_RUBRIC = textwrap.dedent(
     """\
     # This assignment uses the shared course-level rubric defined at rubrics/essay_rubric.yaml.
     use_rubric: "essay_rubric"
@@ -108,7 +132,6 @@ OUTCOMES_YAML = textwrap.dedent(
       - code: CLO1
         title: Example outcome
         description: Students can describe how to work with a text-to-Canvas workflow.
-        vendor_guid: CLO1
         mastery_points: 3
         ratings:
           - points: 3
@@ -249,6 +272,54 @@ RUBRIC_ROW_WRITING_CLARITY = textwrap.dedent(
     """
 )
 
+# =============================================================================
+# NEW: Shared folder content
+# =============================================================================
+
+SHARED_VARIABLES = textwrap.dedent(
+    """\
+    # Course-wide variables
+    # These are available in all pages using {{var:variable_name}}
+    # Page frontmatter can override any of these values.
+    
+    # Course information
+    course_code: "CS 101"
+    course_title: "Introduction to Computer Science"
+    semester: "Spring 2026"
+    
+    # Instructor information
+    instructor_name: "Dr. Ada Lovelace"
+    instructor_email: "lovelace@university.edu"
+    instructor_office: "Engineering Building, Room 142"
+    office_hours: "Tuesday/Thursday 2-4pm"
+    
+    # TA information (optional)
+    # ta_name: "Charles Babbage"
+    # ta_email: "babbage@university.edu"
+    
+    # Common phrases
+    late_penalty: "10% per day, up to 3 days"
+    """
+)
+
+SHARED_CONTACT_INFO = textwrap.dedent(
+    """\
+    **Instructor:** {{var:instructor_name}}  
+    **Email:** {{var:instructor_email}}  
+    **Office:** {{var:instructor_office}}  
+    **Office Hours:** {{var:office_hours}}
+    """
+)
+
+SHARED_LATE_POLICY = textwrap.dedent(
+    """\
+    Late submissions will receive a penalty of {{var:late_penalty}}. 
+    After 3 days, late submissions will not be accepted without prior arrangement.
+    
+    If you need an extension, please contact the instructor **before** the due date.
+    """
+)
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -259,13 +330,24 @@ def main() -> None:
         action="store_true",
         help="Overwrite existing template files where present",
     )
+    parser.add_argument(
+        "--legacy",
+        action="store_true",
+        help="Use legacy folder names (pages/ instead of content/)",
+    )
     args = parser.parse_args()
 
     print(f"[scaffold] COURSE_ROOT = {COURSE_ROOT}")
 
-    # Directories (now including rubrics and rubric rows)
+    # Determine content directory name
+    content_dir = COURSE_ROOT / "pages" if args.legacy else CONTENT_DIR
+    content_name = "pages" if args.legacy else "content"
+    print(f"[scaffold] Using {content_name}/ for content")
+
+    # Create directories
     for d in [
-        PAGES_DIR,
+        content_dir,
+        SHARED_DIR,
         MODULES_DIR,
         OUTCOMES_DIR,
         QUIZ_BANKS_DIR,
@@ -277,17 +359,17 @@ def main() -> None:
         ensure_dir(d)
 
     # Example page and assignment
-    write_file(PAGES_DIR / "welcome.page" / "index.md", PAGES_WELCOME, force=args.force)
+    write_file(content_dir / "welcome.page" / "index.md", WELCOME_PAGE, force=args.force)
     write_file(
-        PAGES_DIR / "sample-assignment.assignment" / "index.md",
-        PAGES_SAMPLE_ASSIGNMENT,
+        content_dir / "sample-assignment.assignment" / "index.md",
+        SAMPLE_ASSIGNMENT,
         force=args.force,
     )
 
     # Sample assignment rubric wrapper, pointing at shared rubric
     write_file(
-        PAGES_DIR / "sample-assignment.assignment" / "rubric.yaml",
-        PAGES_SAMPLE_RUBRIC,
+        content_dir / "sample-assignment.assignment" / "rubric.yaml",
+        SAMPLE_RUBRIC,
         force=args.force,
     )
 
@@ -304,7 +386,7 @@ def main() -> None:
     write_file(QUIZ_BANKS_DIR / "sample.bank.md", QUIZ_SAMPLE_BANK, force=args.force)
 
     # Sample quiz (uses question bank)
-    write_file(PAGES_DIR / "sample-quiz.quiz" / "index.md", QUIZ_SAMPLE_QUIZ, force=args.force)
+    write_file(content_dir / "sample-quiz.quiz" / "index.md", QUIZ_SAMPLE_QUIZ, force=args.force)
 
     # Shared rubric and row snippet
     write_file(RUBRICS_DIR / "essay_rubric.yaml", RUBRIC_SHARED_ESSAY, force=args.force)
@@ -314,7 +396,19 @@ def main() -> None:
         force=args.force,
     )
 
-    print("[scaffold] Done. You can now edit the scaffolded files and run watch_and_publish.py.")
+    # NEW: Shared variables and includes
+    write_file(SHARED_DIR / "variables.yaml", SHARED_VARIABLES, force=args.force)
+    write_file(SHARED_DIR / "contact_info.md", SHARED_CONTACT_INFO, force=args.force)
+    write_file(SHARED_DIR / "late_policy.md", SHARED_LATE_POLICY, force=args.force)
+
+    print()
+    print("[scaffold] Done!")
+    print()
+    print("Next steps:")
+    print("  1. Edit shared/variables.yaml with your course details")
+    print("  2. Edit the sample content in content/")
+    print("  3. Run: zaphod sync --dry-run")
+    print("  4. Run: zaphod sync")
 
 
 if __name__ == "__main__":
