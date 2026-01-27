@@ -119,7 +119,10 @@ class ZaphodContext:
     
     def __init__(self):
         self.course_root = Path.cwd()
-        self.pages_dir = self.course_root / "pages"
+        # Support both content/ (preferred) and pages/ (legacy)
+        content_dir = self.course_root / "content"
+        pages_dir = self.course_root / "pages"
+        self.content_dir = content_dir if content_dir.exists() else pages_dir
         self.metadata_dir = self.course_root / "_course_metadata"
         self.zaphod_root = self._find_zaphod_root()
         self.python_exe = self._find_python()
@@ -357,15 +360,15 @@ def list_content(ctx: ZaphodContext, content_type: str, module: Optional[str], a
         zaphod list --module "Week 1"    # Content in specific module
         zaphod list --json               # JSON output
     """
-    if not ctx.pages_dir.exists():
-        click.echo("[x] No pages/ directory found", err=True)
+    if not ctx.content_dir.exists():
+        click.echo(f"[x] No content directory found (content/ or pages/)", err=True)
         sys.exit(1)
     
     items = []
     extensions = ['.page', '.assignment', '.link', '.file', '.quiz'] if content_type == 'all' else [f'.{content_type}']
     
     for ext in extensions:
-        for folder in ctx.pages_dir.rglob(f"*{ext}"):
+        for folder in ctx.content_dir.rglob(f"*{ext}"):
             meta_path = folder / "meta.json"
             if not meta_path.exists():
                 continue
@@ -431,11 +434,11 @@ def new(ctx: ZaphodContext, content_type: str, name: str, module: tuple):
     # SECURITY: Sanitize folder name to prevent path traversal
     safe_name = _sanitize_filename(name)
     folder_name = f"{safe_name}.{content_type}"
-    folder_path = ctx.pages_dir / folder_name
+    folder_path = ctx.content_dir / folder_name
     
-    # SECURITY: Verify path is within pages directory
+    # SECURITY: Verify path is within content directory
     try:
-        folder_path.resolve().relative_to(ctx.pages_dir.resolve())
+        folder_path.resolve().relative_to(ctx.content_dir.resolve())
     except ValueError:
         click.echo(f"Error: Invalid name (path traversal detected): {name}", err=True)
         sys.exit(1)
@@ -636,6 +639,7 @@ def info(ctx: ZaphodContext):
         click.echo("Course ID: Not set (add to zaphod.yaml or set COURSE_ID env var)")
     
     click.echo(f"Course Root: {ctx.course_root}")
+    click.echo(f"Content Dir: {ctx.content_dir.name}/" if ctx.content_dir.exists() else "Content Dir: Not found")
     click.echo(f"Zaphod Scripts: {ctx.zaphod_root or 'Not found'}")
     
     # Sync status
@@ -658,19 +662,19 @@ def info(ctx: ZaphodContext):
     click.echo("\n[books] Content Statistics")
     click.echo("-" * 60)
     
-    if ctx.pages_dir.exists():
+    if ctx.content_dir.exists():
         stats = {
-            "pages": len(list(ctx.pages_dir.rglob("*.page"))),
-            "assignments": len(list(ctx.pages_dir.rglob("*.assignment"))),
-            "quizzes": len([d for d in ctx.pages_dir.rglob("*.quiz") if d.is_dir()]),
-            "links": len(list(ctx.pages_dir.rglob("*.link"))),
-            "files": len(list(ctx.pages_dir.rglob("*.file"))),
+            "pages": len(list(ctx.content_dir.rglob("*.page"))),
+            "assignments": len(list(ctx.content_dir.rglob("*.assignment"))),
+            "quizzes": len([d for d in ctx.content_dir.rglob("*.quiz") if d.is_dir()]),
+            "links": len(list(ctx.content_dir.rglob("*.link"))),
+            "files": len(list(ctx.content_dir.rglob("*.file"))),
         }
         
         for content_type, count in stats.items():
             click.echo(f"{content_type.capitalize()}: {count}")
     else:
-        click.echo("No pages/ directory found")
+        click.echo("No content directory found (content/ or pages/)")
     
     # Question banks
     banks_dir = ctx.course_root / "quiz-banks"
@@ -715,7 +719,8 @@ def init(ctx: ZaphodContext, course_id: Optional[int], force: bool):
     Initialize a new Zaphod course structure
     
     Creates the standard directory structure and sample content:
-    - pages/           Content folders (.page, .assignment, .quiz, etc.)
+    - content/         Content folders (.page, .assignment, .quiz, etc.)
+    - shared/          Shared variables and includes
     - assets/          Shared media files (images, videos, PDFs)
     - quiz-banks/      Question bank files (.bank.md)
     - modules/         Module ordering configuration
@@ -760,7 +765,7 @@ course_id: {course_id}
     click.echo()
     click.echo("Next steps:")
     click.echo("  1. Edit zaphod.yaml to set your course_id (if not set)")
-    click.echo("  2. Edit the sample content in pages/")
+    click.echo("  2. Edit the sample content in content/")
     click.echo("  3. Run: zaphod sync --dry-run")
     click.echo("  4. Run: zaphod sync")
 
