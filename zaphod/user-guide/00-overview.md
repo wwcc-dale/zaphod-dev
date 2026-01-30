@@ -29,6 +29,10 @@ All your course content lives in one folder on your computer. You can see everyt
 
 Every change is saved in your files. If something goes wrong in Canvas, you can always re-sync from your files. You can even use version control (like Git) to track every change you've ever made.
 
+### It allows collaboration
+
+You can easily share your course with other instructors and build it together. If you publish it on gihub you can both work on it and not overwrite eachother's work.  
+
 ### It's reusable
 
 Want to copy a module to a new course? Just copy the folder. Want to use the same assignment description across multiple sections? Just copy the file. No more recreating content from scratch.
