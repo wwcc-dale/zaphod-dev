@@ -1,13 +1,64 @@
+# Python
 .venv
-*Zone.Identifier
-*credentials.json
-*.log
 *.pyc
-.zaphod_watch_state.json
-courses
-**/zaphod/*.zip
-.claude
-99-*.md
 zaphod.egg-info
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Credentials and secrets
+*credentials.json
+*credentials.txt
+*.pem
+*.key
+*.cert
+*.p12
+*.pfx
+*api_key*
+*token*
+*secret*
+
+# Logs
+*.log
+
+# Application state
+.zaphod_watch_state.json
+
+# Build artifacts
+**/zaphod/*.zip
+
+# Content directories
+courses
+
+# Documentation
+99-*.md
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+*Zone.Identifier
+
+# IDE/Editor
+.vscode/settings.json
+.idea/workspace.xml
+*.swp
+*.swo
+*~
+.claude
+
+# Database files
+*.sqlite
+*.sqlite3
+*.db
+
+# Backups
+*.bak
+*.backup
+*.old
+
+# Project-specific
 utilities
 deprecated
