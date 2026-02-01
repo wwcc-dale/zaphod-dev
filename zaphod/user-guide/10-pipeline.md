@@ -83,7 +83,7 @@ pages/welcome.page/
 **Purpose:** Import question banks from `.bank.md` files.
 
 **What it does:**
-1. Reads `quiz-banks/*.bank.md` files
+1. Reads `question-banks/*.bank.md` files
 2. Parses questions (multiple choice, true/false, etc.)
 3. Converts to QTI format
 4. Imports to Canvas via Content Migration API

@@ -88,7 +88,7 @@ my-course/
 │   │       └── index.md
 │   └── 02-Week 1.module/
 │       └── ...
-├── quiz-banks/
+├── question-banks/
 │   ├── chapter1.bank.md
 │   └── chapter2.bank.md
 ├── assets/

@@ -12,7 +12,7 @@
 **Replaced by:** `sync_banks.py` + `sync_quizzes.py`
 
 **What it did:**
-- Read `quiz-banks/*.quiz.txt` files
+- Read `question-banks/*.quiz.txt` files
 - Created Classic Quizzes directly via Canvas API
 - Combined bank and quiz creation in one step
 
@@ -83,8 +83,8 @@ The `.quiz.txt` format is still parsed but `.bank.md` is recommended:
 
 **Example migration:**
 ```
-# Old: quiz-banks/chapter1.quiz.txt
-# New: quiz-banks/chapter1.bank.md
+# Old: question-banks/chapter1.quiz.txt
+# New: question-banks/chapter1.bank.md
 ```
 
 ---

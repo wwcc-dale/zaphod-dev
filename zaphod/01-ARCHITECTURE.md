@@ -29,7 +29,7 @@ course/
 │   ├── module-Legacy.../       # LEGACY: module- prefix still supported
 │   ├── resources.link/         # External link
 │   └── handout.file/           # File download
-├── quiz-banks/                 # Question bank sources
+├── question-banks/                 # Question bank sources
 │   ├── chapter1.bank.md        # NEW: .bank.md format
 │   └── legacy.quiz.txt         # LEGACY: .quiz.txt still supported
 ├── assets/                     # Shared media (images, videos, PDFs)
@@ -138,7 +138,7 @@ zaphod export [--output FILE]
 
 ### 3. sync_banks.py
 
-**Input:** `quiz-banks/*.bank.md` or `*.quiz.txt`
+**Input:** `question-banks/*.bank.md` or `*.quiz.txt`
 **Output:** Canvas question banks via QTI migration
 
 **Features:**
@@ -205,7 +205,7 @@ zaphod export [--output FILE]
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  quiz-banks/*.bank.md                               │
+│  question-banks/*.bank.md                               │
 │  (Question Pools - Canvas Question Banks)           │
 │  ├── chapter1.bank.md  →  "Chapter 1 Questions"    │
 │  └── chapter2.bank.md  →  "Chapter 2 Questions"    │

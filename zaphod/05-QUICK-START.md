@@ -121,7 +121,7 @@ zaphod init --course-id 123456
 my-first-course/
 ├── pages/               # Your content goes here
 ├── assets/              # Images, PDFs, videos
-├── quiz-banks/          # Quiz files
+├── question-banks/          # Quiz files
 ├── outcomes/            # Learning outcomes
 ├── modules/             # Module ordering
 ├── _course_metadata/    # Internal state
@@ -358,7 +358,7 @@ A: No! Always edit locally. Canvas edits will be overwritten.
 A: Put them in `assets/` or the content folder, reference with `![](path)`
 
 **Q: How do I make a quiz?**  
-A: Create `quiz-banks/myquiz.quiz.txt` (see 09-quizzes.md)
+A: Create `question-banks/myquiz.quiz.txt` (see 09-quizzes.md)
 
 **Q: How do I share text across pages?**  
 A: Use includes: Create `pages/includes/snippet.md`, then use `{{include:snippet}}`

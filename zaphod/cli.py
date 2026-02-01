@@ -699,7 +699,7 @@ def info(ctx: ZaphodContext):
         click.echo("No content directory found (content/ or pages/)")
     
     # Question banks
-    banks_dir = ctx.course_root / "quiz-banks"
+    banks_dir = ctx.course_root / "question-banks"
     if banks_dir.exists():
         bank_count = len(list(banks_dir.glob("*.bank.md")))
         legacy_count = len(list(banks_dir.glob("*.quiz.txt")))
@@ -744,7 +744,7 @@ def init(ctx: ZaphodContext, course_id: Optional[int], force: bool):
     - content/         Content folders (.page, .assignment, .quiz, etc.)
     - shared/          Shared variables and includes
     - assets/          Shared media files (images, videos, PDFs)
-    - quiz-banks/      Question bank files (.bank.md)
+    - question-banks/      Question bank files (.bank.md)
     - modules/         Module ordering configuration
     - outcomes/        Learning outcomes definitions
     - rubrics/         Shared rubrics and reusable rows

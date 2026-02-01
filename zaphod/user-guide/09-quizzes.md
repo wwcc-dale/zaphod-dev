@@ -8,7 +8,7 @@
 
 Zaphod uses a two-layer approach to quizzes:
 
-1. **Question Banks** — Pools of questions stored in `quiz-banks/`
+1. **Question Banks** — Pools of questions stored in `question-banks/`
 2. **Quizzes** — The actual quizzes students take, stored in `pages/` as `.quiz/` folders
 
 You create questions in banks, then quizzes pull from those banks. This lets you:
@@ -22,7 +22,7 @@ You create questions in banks, then quizzes pull from those banks. This lets you
 
 ### Step 1: Create a Question Bank
 
-Create `quiz-banks/chapter1.bank.md`:
+Create `question-banks/chapter1.bank.md`:
 
 ```markdown
 ---
@@ -76,10 +76,10 @@ Question banks are pools of questions. Students never see banks directly — qui
 
 ### Bank File Format
 
-Banks live in `quiz-banks/` with a `.bank.md` extension:
+Banks live in `question-banks/` with a `.bank.md` extension:
 
 ```
-quiz-banks/
+question-banks/
 ├── chapter1.bank.md
 ├── chapter2.bank.md
 └── midterm-pool.bank.md
@@ -331,7 +331,7 @@ question_groups:
 
 ## Complete Example
 
-### Bank: `quiz-banks/week1.bank.md`
+### Bank: `question-banks/week1.bank.md`
 
 ```markdown
 ---
@@ -402,7 +402,7 @@ Good luck!
 
 ### Initial Setup
 
-1. Create your question banks in `quiz-banks/`
+1. Create your question banks in `question-banks/`
 2. Run `zaphod sync` to upload banks to Canvas
 3. Note the bank IDs from Canvas
 4. Create `.quiz/` folders with `bank_id` references

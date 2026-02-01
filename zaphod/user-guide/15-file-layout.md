@@ -22,7 +22,7 @@ curriculum-workshop/
 │  │  ├─ exports/               # Exported IMSCC files
 │  │  ├─ modules/               # Module ordering
 │  │  ├─ outcomes/              # Learning outcomes
-│  │  ├─ quiz-banks/            # Question banks
+│  │  ├─ question-banks/            # Question banks
 │  │  ├─ rubrics/               # Shared rubrics
 │  │  ├─ shared/                # Variables and includes
 │  │  └─ zaphod.yaml            # Course configuration
@@ -83,12 +83,12 @@ shared/
 └─ academic_integrity.md
 ```
 
-### quiz-banks/
+### question-banks/
 
 Question banks for quizzes.
 
 ```text
-quiz-banks/
+question-banks/
 ├─ unit-1.bank.md       # New format (recommended)
 ├─ midterm.bank.md
 └─ final.bank.md
@@ -194,7 +194,7 @@ my-course/
 ├─ outcomes/
 │  └─ outcomes.yaml
 │
-├─ quiz-banks/
+├─ question-banks/
 │  ├─ week-1.bank.md
 │  └─ final.bank.md
 │

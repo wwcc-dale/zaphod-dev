@@ -10,7 +10,7 @@ Prune quiz content for the current course:
 
 1) Delete Classic quizzes that are not backed by a local .quiz/ folder.
 2) Delete question banks whose names do not correspond to any
-   quiz-banks/*.bank.md or quiz-banks/*.quiz.txt file.
+   question-banks/*.bank.md or question-banks/*.quiz.txt file.
 
 This script does NOT modify quiz import logic; it only inspects Canvas
 state vs local content.
@@ -37,7 +37,7 @@ from zaphod.canvas_client import make_canvas_api_obj
 SCRIPT_DIR = Path(__file__).resolve().parent
 SHARED_ROOT = SCRIPT_DIR.parent
 COURSE_ROOT = Path.cwd()
-QUIZ_BANKS_DIR = COURSE_ROOT / "quiz-banks"
+QUESTION_BANKS_DIR = COURSE_ROOT / "question-banks"
 CONTENT_DIR = COURSE_ROOT / "content"
 PAGES_DIR = COURSE_ROOT / "pages"  # Legacy fallback
 
@@ -120,20 +120,20 @@ def get_local_quiz_names() -> Set[str]:
 
 def get_local_bank_names() -> Set[str]:
     """
-    Get expected bank names from quiz-banks/*.bank.md and *.quiz.txt files.
+    Get expected bank names from question-banks/*.bank.md and *.quiz.txt files.
     
     Bank names are the file stems (e.g., "chapter1.bank" from "chapter1.bank.md").
     """
     names: Set[str] = set()
-    if not QUIZ_BANKS_DIR.is_dir():
+    if not QUESTION_BANKS_DIR.is_dir():
         return names
 
     # New format: *.bank.md
-    for path in QUIZ_BANKS_DIR.glob("*.bank.md"):
+    for path in QUESTION_BANKS_DIR.glob("*.bank.md"):
         names.add(path.stem)  # "chapter1.bank"
     
     # Legacy format: *.quiz.txt
-    for path in QUIZ_BANKS_DIR.glob("*.quiz.txt"):
+    for path in QUESTION_BANKS_DIR.glob("*.quiz.txt"):
         names.add(path.stem)  # "week1.quiz"
     
     return names

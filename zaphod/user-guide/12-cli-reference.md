@@ -54,7 +54,7 @@ my-course/
 │   ├── welcome.page/
 │   └── sample-assignment.assignment/
 ├── assets/                 # Shared media
-├── quiz-banks/             # Question banks
+├── question-banks/             # Question banks
 │   └── sample.bank.md
 ├── modules/                # Module ordering
 │   └── module_order.yaml

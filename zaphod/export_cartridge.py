@@ -68,7 +68,7 @@ COURSE_ROOT = Path.cwd()
 CONTENT_DIR = COURSE_ROOT / "content"
 PAGES_DIR = COURSE_ROOT / "pages"  # Legacy fallback
 ASSETS_DIR = COURSE_ROOT / "assets"
-QUIZ_BANKS_DIR = COURSE_ROOT / "quiz-banks"
+QUESTION_BANKS_DIR = COURSE_ROOT / "question-banks"
 OUTCOMES_DIR = COURSE_ROOT / "outcomes"
 MODULES_DIR = COURSE_ROOT / "modules"
 RUBRICS_DIR = COURSE_ROOT / "rubrics"
@@ -312,13 +312,13 @@ def load_shared_rubric(name: str) -> Optional[Dict[str, Any]]:
 # ============================================================================
 
 def load_quizzes() -> List[QuizItem]:
-    """Load all quizzes from quiz-banks/ directory."""
+    """Load all quizzes from question-banks/ directory."""
     quizzes = []
     
-    if not QUIZ_BANKS_DIR.exists():
+    if not QUESTION_BANKS_DIR.exists():
         return quizzes
     
-    for quiz_file in QUIZ_BANKS_DIR.glob("*.quiz.txt"):
+    for quiz_file in QUESTION_BANKS_DIR.glob("*.quiz.txt"):
         quiz = load_quiz(quiz_file)
         if quiz:
             quizzes.append(quiz)
@@ -369,7 +369,7 @@ def split_quiz_frontmatter(raw: str) -> Tuple[Dict[str, Any], str]:
 
 def parse_quiz_questions(body: str, default_points: float) -> List[Dict[str, Any]]:
     """Parse quiz questions from body text."""
-    # Reuse patterns from sync_quiz_banks.py
+    # Reuse patterns from sync_question_banks.py
     QUESTION_HEADER_RE = re.compile(r"^\s*(\d+)\.\s+(.*\S)\s*$")
     MC_OPTION_RE = re.compile(r"^\s*([a-z])\)\s+(.*\S)\s*$")
     MC_OPTION_CORRECT_RE = re.compile(r"^\s*\*([a-z])\)\s+(.*\S)\s*$")

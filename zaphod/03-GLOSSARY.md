@@ -118,8 +118,8 @@ The `pages/` folder where all content items live (pages, assignments, quizzes, f
 ### Assets Folder
 The `assets/` folder where shared media files live (images, videos, PDFs).
 
-### Quiz Banks Directory
-The `quiz-banks/` folder where `.bank.md` files live (question pools).
+### Question Banks Directory
+The `question-banks/` folder where `.bank.md` files live (question pools).
 
 ### Course Metadata
 The `_course_metadata/` folder where Zaphod stores internal state (cache, config, watch state).
@@ -175,7 +175,7 @@ An external link in Canvas (to a website, video, tool). Folder ends in `.link`.
 ## Quiz Terms
 
 ### Bank File
-A `.bank.md` file in `quiz-banks/` that defines questions for a question bank.
+A `.bank.md` file in `question-banks/` that defines questions for a question bank.
 
 ### Quiz Folder
 A `.quiz/` folder under `pages/` that defines a deployable quiz.
