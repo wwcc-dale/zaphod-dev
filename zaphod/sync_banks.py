@@ -84,6 +84,7 @@ import yaml
 from zaphod.config_utils import get_course_id
 from zaphod.canvas_client import get_canvas_credentials
 from zaphod.security_utils import get_rate_limiter, mask_sensitive, is_safe_url
+from zaphod.icons import SUCCESS
 
 
 # ============================================================================
@@ -878,7 +879,7 @@ def upload_bank_to_canvas(
             print(f"[bank]   Progress: {completion}% ({workflow_state})")
             
             if workflow_state == "completed":
-                print(f"[bank] âœ” Bank '{bank.bank_name}' imported successfully")
+                print(f"[bank] {SUCCESS} Bank '{bank.bank_name}' imported successfully")
                 return migration_id
             elif workflow_state == "failed":
                 migration_failed = True
@@ -896,7 +897,7 @@ def upload_bank_to_canvas(
         
         bank_id = verify_bank_exists(course_id, bank.bank_name, api_url, api_key)
         if bank_id:
-            print(f"[bank] âœ” Bank '{bank.bank_name}' exists (id={bank_id}) - import succeeded")
+            print(f"[bank] {SUCCESS} Bank '{bank.bank_name}' exists (id={bank_id}) - import succeeded")
             return migration_id
         else:
             if timed_out:

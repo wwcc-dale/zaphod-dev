@@ -28,6 +28,8 @@ import re
 import yaml
 import frontmatter
 
+from zaphod.icons import SUCCESS, ERROR, WARNING, INFO
+
 
 class Severity(Enum):
     ERROR = "error"      # Must fix before sync will work
@@ -50,7 +52,7 @@ class Issue:
         if self.line:
             loc += f":{self.line}"
         
-        icon = {"error": "✗", "warning": "⚠", "info": "ℹ"}[self.severity.value]
+        icon = {"error": ERROR, "warning": WARNING, "info": INFO}[self.severity.value]
         msg = f"  {icon} {self.message}"
         
         if self.suggestion:
@@ -85,7 +87,7 @@ class ValidationResult:
         w = len(self.warnings)
         
         if e == 0 and w == 0:
-            return f"✓ All {self.files_checked} files valid!"
+            return f"{SUCCESS} All {self.files_checked} files valid!"
         
         parts = []
         if e > 0:
@@ -613,9 +615,9 @@ def print_results(result: ValidationResult, verbose: bool = False):
     print(f"\n{result.summary()}")
     
     if result.is_valid:
-        print("✓ Course is ready to sync!")
+        print(f"{SUCCESS} Course is ready to sync!")
     else:
-        print("✗ Fix errors before syncing.")
+        print(f"{ERROR} Fix errors before syncing.")
 
 
 # CLI integration

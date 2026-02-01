@@ -50,6 +50,7 @@ from xml.etree import ElementTree as ET
 from defusedxml import minidom  # SECURITY: Hardened against XXE attacks
 
 from zaphod.security_utils import is_safe_path
+from zaphod.icons import SUCCESS
 
 import yaml
 import frontmatter
@@ -1149,7 +1150,7 @@ def build_cartridge(export: CartridgeExport, output_path: Path):
                     arcname = file_path.relative_to(temp_dir)
                     zf.write(file_path, arcname)
         
-        print(f"\n[cartridge] Ã¢Å“â€œ Created {output_path}")
+        print(f"\n[cartridge] {SUCCESS} Created {output_path}")
         print(f"[cartridge]   Size: {output_path.stat().st_size / 1024:.1f} KB")
         
     finally:

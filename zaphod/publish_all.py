@@ -29,6 +29,7 @@ from zaphod.errors import (
     SyncError,
 )
 from zaphod.security_utils import is_safe_path
+from zaphod.icons import SUCCESS, ERROR
 
 
 # Paths relative to course root (cwd)
@@ -647,7 +648,7 @@ def bulk_upload_assets(course, cache: dict):
             content_hash = hashlib.md5(file_path.read_bytes()).hexdigest()[:12]
             cache_key = f"{course.id}:{filename}:{content_hash}"
             if cache_key in cache:
-                print(f"[bulk-upload] ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ {filename} (already uploaded)")
+                print(f"[bulk-upload] {SUCCESS} {filename} (already uploaded)")
                 skipped += 1
                 continue
 
@@ -655,7 +656,7 @@ def bulk_upload_assets(course, cache: dict):
             uploaded += 1
         except Exception as e:
             failed += 1
-            print(f"[bulk-upload] ÃƒÂ¢Ã…â€œÃ¢â‚¬â€ {filename}: {type(e).__name__}: {e}")
+            print(f"[bulk-upload]  {ERROR}  {filename}: {type(e).__name__}: {e}")
 
     print(f"\n[bulk-upload] Summary: {uploaded} uploaded, {skipped} skipped, {failed} failed")
     save_upload_cache(cache)

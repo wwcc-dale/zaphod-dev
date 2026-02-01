@@ -44,6 +44,7 @@ from typing import Dict, Any, Optional
 from urllib.parse import urlparse
 
 from zaphod.security_utils import is_safe_path, is_safe_url
+from zaphod.icons import SUCCESS, WARNING
 
 # Optional: requests for HTTP downloads
 try:
@@ -176,12 +177,12 @@ def hydrate_file(
     if local_path.exists():
         if verify and checksum:
             if verify_checksum(local_path, checksum):
-                print(f"  ✓ {relative_path} (exists, checksum OK)")
+                print(f"  {SUCCESS} {relative_path} (exists, checksum OK)")
                 return 'skipped'
             else:
-                print(f"  ⚠ {relative_path} (exists, checksum MISMATCH - will re-download)")
+                print(f"  {WARNING} {relative_path} (exists, checksum MISMATCH - will re-download)")
         else:
-            print(f"  ✓ {relative_path} (exists)")
+            print(f"  {SUCCESS} {relative_path} (exists)")
             return 'skipped'
     
     # Build source path
@@ -212,9 +213,9 @@ def hydrate_file(
     # Verify after download
     if verify and checksum:
         if verify_checksum(local_path, checksum):
-            print(f"    ✓ checksum verified")
+            print(f"    {SUCCESS} checksum verified")
         else:
-            print(f"    ⚠ checksum mismatch after download!")
+            print(f"    {WARNING} checksum mismatch after download!")
             return 'failed'
     
     return 'downloaded'
