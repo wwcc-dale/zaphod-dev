@@ -19,7 +19,7 @@ Quiz folders live alongside pages and assignments in the content directory:
     Ã¢â€â€š   Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ 03-pretest.quiz/            # Quiz as first-class citizen
     Ã¢â€â€š       Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ index.md
     Ã¢â€â€š
-    quiz-banks/                         # Source pools (not deployed directly)
+    question-banks/                         # Source pools (not deployed directly)
     Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ chapter1.bank.md
     Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ chapter2.bank.md
 
@@ -37,7 +37,7 @@ Quiz index.md format:
     
     # Option A: Draw from question banks
     question_groups:
-      - bank: "chapter1.bank"           # References quiz-banks/chapter1.bank.md
+      - bank: "chapter1.bank"           # References question-banks/chapter1.bank.md
         pick: 5                         # Pick 5 random questions
         points_per_question: 2
       - bank: "chapter2.bank"
@@ -85,6 +85,7 @@ from canvasapi import Canvas
 from zaphod.config_utils import get_course_id
 from zaphod.canvas_client import get_canvas_credentials, make_canvas_api_obj
 from zaphod.security_utils import get_rate_limiter, mask_sensitive
+from zaphod.icons import fence, SUCCESS, WARNING, INFO
 
 
 # ============================================================================
@@ -95,7 +96,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 COURSE_ROOT = Path.cwd()
 PAGES_DIR = COURSE_ROOT / "pages"
 CONTENT_DIR = COURSE_ROOT / "content"  # Alternative name
-QUIZ_BANKS_DIR = COURSE_ROOT / "quiz-banks"
+QUESTION_BANKS_DIR = COURSE_ROOT / "question-banks"
 METADATA_DIR = COURSE_ROOT / "_course_metadata"
 QUIZ_CACHE_FILE = METADATA_DIR / "quiz_cache.json"
 
@@ -113,7 +114,7 @@ def load_quiz_cache() -> Dict[str, Any]:
         try:
             return json.loads(QUIZ_CACHE_FILE.read_text())
         except Exception as e:
-            print(f"[quiz:warn] Failed to load cache: {e}")
+            print(f"⚠️ Failed to load cache: {e}")
     return {}
 
 
@@ -123,7 +124,7 @@ def save_quiz_cache(cache: Dict[str, Any]):
         METADATA_DIR.mkdir(parents=True, exist_ok=True)
         QUIZ_CACHE_FILE.write_text(json.dumps(cache, indent=2))
     except Exception as e:
-        print(f"[quiz:warn] Failed to save cache: {e}")
+        print(f"⚠️ Failed to save cache: {e}")
 
 
 def compute_quiz_hash(folder_path: Path) -> str:
@@ -513,7 +514,7 @@ def parse_quiz_folder(folder_path: Path) -> Optional[QuizFolder]:
     meta_path = folder_path / "meta.json"
     
     if not index_path.is_file():
-        print(f"[quiz:warn] No index.md in {folder_path}")
+        print(f"⚠️ No index.md in {folder_path}")
         return None
     
     raw = index_path.read_text(encoding="utf-8")
@@ -674,13 +675,13 @@ def get_question_banks(course_id: int, api_url: str, api_key: str) -> Dict[str, 
         # Load bank names from sync_banks.py cache for reference
         bank_cache = load_bank_cache()
         if bank_cache:
-            print(f"[quiz:info] Canvas question_banks API not available")
-            print(f"[quiz:info] Found {len(bank_cache)} bank(s) in local cache")
-            print(f"[quiz:hint] To link quizzes to banks, find bank IDs in Canvas:")
-            print(f"[quiz:hint]   Course > Quizzes > Manage Question Banks > click bank > ID in URL")
-            print(f"[quiz:hint]   Then add 'bank_id: <id>' to quiz frontmatter question_groups")
+            print(f"ℹ️ Canvas question_banks API not available")
+            print(f"ℹ️ Found {len(bank_cache)} bank(s) in local cache")
+            print(f"💡 To link quizzes to banks, find bank IDs in Canvas:")
+            print(f"💡   Course > Quizzes > Manage Question Banks > click bank > ID in URL")
+            print(f"💡   Then add 'bank_id: <id>' to quiz frontmatter question_groups")
         else:
-            print(f"[quiz:info] Question bank lookup not available (Canvas API limitation)")
+            print(f"ℹ️ Question bank lookup not available (Canvas API limitation)")
     
     return banks
 
@@ -692,7 +693,7 @@ def get_existing_quizzes(course) -> Dict[str, Any]:
         for quiz in course.get_quizzes():
             quizzes[quiz.title] = quiz
     except Exception as e:
-        print(f"[quiz:warn] Could not fetch existing quizzes: {e}")
+        print(f"⚠️ Could not fetch existing quizzes: {e}")
     return quizzes
 
 
@@ -708,7 +709,7 @@ def delete_quiz_questions(quiz, api_url: str, api_key: str, course_id: int):
         if resp.status_code == 200:
             groups = resp.json()
             if groups:
-                print(f"[quiz]   Deleting {len(groups)} question group(s)...")
+                print(f"Deleting {len(groups)} question group(s)...")
             for g in groups:
                 g_id = g.get("id")
                 if g_id:
@@ -716,9 +717,9 @@ def delete_quiz_questions(quiz, api_url: str, api_key: str, course_id: int):
                     get_rate_limiter().wait_if_needed()  # SECURITY: Rate limiting
                     del_resp = requests.delete(del_url, headers=headers, timeout=REQUEST_TIMEOUT)
                     if del_resp.status_code not in (200, 204):
-                        print(f"[quiz:warn] Failed to delete group {g_id}: HTTP {del_resp.status_code}")
+                        print(f"⚠️ Failed to delete group {g_id}: HTTP {del_resp.status_code}")
     except Exception as e:
-        print(f"[quiz:warn] Error deleting question groups: {e}")
+        print(f"⚠️ Error deleting question groups: {e}")
     
     # Then delete questions
     questions_url = f"{api_url}/api/v1/courses/{course_id}/quizzes/{quiz.id}/questions"
@@ -728,7 +729,7 @@ def delete_quiz_questions(quiz, api_url: str, api_key: str, course_id: int):
         if resp.status_code == 200:
             questions = resp.json()
             if questions:
-                print(f"[quiz]   Deleting {len(questions)} question(s)...")
+                print(f"Deleting {len(questions)} question(s)...")
             for q in questions:
                 q_id = q.get("id")
                 if q_id:
@@ -736,7 +737,7 @@ def delete_quiz_questions(quiz, api_url: str, api_key: str, course_id: int):
                     get_rate_limiter().wait_if_needed()  # SECURITY: Rate limiting
                     requests.delete(del_url, headers=headers, timeout=REQUEST_TIMEOUT)
     except Exception as e:
-        print(f"[quiz:warn] Error deleting questions: {e}")
+        print(f"⚠️ Error deleting questions: {e}")
 
 
 def to_canvas_question_payload(pq: ParsedQuestion) -> Dict[str, Any]:
@@ -853,20 +854,20 @@ def create_canvas_quiz(
     
     if existing_quiz:
         # Update existing quiz
-        print(f"[quiz] Updating existing quiz '{existing_quiz.title}' (id={existing_quiz.id})")
+        print(f"Updating existing quiz '{existing_quiz.title}' (id={existing_quiz.id})")
         
         # Update quiz settings
         existing_quiz.edit(quiz=quiz_params)
         
         # Delete old questions and groups
         delete_quiz_questions(existing_quiz, api_url, api_key, course_id)
-        print(f"[quiz]   Cleared existing questions")
+        print(f"Cleared existing questions")
         
         quiz = existing_quiz
     else:
         # Create new quiz
         quiz = course.create_quiz(quiz=quiz_params)
-        print(f"[quiz] Created quiz '{quiz.title}' (id={quiz.id})")
+        print(f"Created quiz '{quiz.title}' (id={quiz.id})")
     
     # Add question groups (bank references)
     if quiz_folder.question_groups:
@@ -895,9 +896,9 @@ def create_canvas_quiz(
             
             if not resolved_bank_id:
                 display_name = bank_name or f"bank_id={group.bank_id}"
-                print(f"[quiz:warn] Bank '{display_name}' not found, skipping group")
-                print(f"[quiz:hint] Use 'bank_id: <id>' in frontmatter. Find IDs in Canvas UI:")
-                print(f"[quiz:hint]   Course > Settings > Question Banks > click bank > ID in URL")
+                print(f"⚠️ Bank '{display_name}' not found, skipping group")
+                print(f"💡 Use 'bank_id: <id>' in frontmatter. Find IDs in Canvas UI:")
+                print(f"💡   Course > Settings > Question Banks > click bank > ID in URL")
                 continue
             
             group_name = bank_name or f"Bank {resolved_bank_id}"
@@ -916,7 +917,7 @@ def create_canvas_quiz(
             if resp.status_code in (200, 201):
                 print(f"[quiz:group] Added group: pick {group.pick} from '{group_name}' (bank_id={resolved_bank_id}) @ {group.points_per_question} pts each")
             else:
-                print(f"[quiz:warn] Failed to create group for bank '{group.bank_name}'")
+                print(f"⚠️ Failed to create group for bank '{group.bank_name}'")
     
     # Add inline questions
     if quiz_folder.inline_questions:
@@ -1023,83 +1024,79 @@ def main():
         if changed_files:
             quiz_folders = iter_quiz_folders_incremental(changed_files)
             if not quiz_folders:
-                print(f"[quiz] No changed quiz folders; nothing to do.")
+                print(f"No changed quiz folders; nothing to do.")
                 return
         else:
             quiz_folders = iter_quiz_folders_full()
             if not quiz_folders:
-                print(f"[quiz] No quiz folders (*.quiz/) found")
+                print(f"No quiz folders (*.quiz/) found")
                 return
     
-    print(f"[quiz] Processing {len(quiz_folders)} quiz folder(s)")
-    print(f"[quiz] Course ID: {course_id_int}")
+    fence("Syncing Quizzes")
+    print(f"Course ID: {course_id_int}")
+    print(f"Quiz folders: {len(quiz_folders)}")
     print()
-    
+
     # Load question banks for group references
     bank_map = get_question_banks(course_id_int, api_url, api_key)
     if bank_map:
-        print(f"[quiz] Found {len(bank_map)} question bank(s) in Canvas")
+        print(f"ℹ️ Found {len(bank_map)} question bank(s) in Canvas")
     else:
-        print(f"[quiz] No question banks found (bank references will fail)")
-    
+        print(f"⚠️ No question banks found (bank references will fail)")
+
     # Load existing quizzes for upsert
     existing_quizzes = get_existing_quizzes(course)
     if existing_quizzes:
-        print(f"[quiz] Found {len(existing_quizzes)} existing quiz(es) in Canvas")
-    
+        print(f"ℹ️ Found {len(existing_quizzes)} existing quiz(es)")
+    print()
+
     success_count = 0
     skipped_count = 0
     for folder in quiz_folders:
-        print(f"[quiz] === {folder.name} ===")
-        
         # Check if quiz needs sync (based on content hash AND Canvas existence)
         needs_sync, reason = quiz_needs_sync(folder, quiz_cache, existing_quizzes, force=args.force)
         if not needs_sync:
-            print(f"[quiz]   ({reason}, skipping)")
+            # Silently skip unchanged - just count them
             skipped_count += 1
             continue
-        
-        if reason != "forced" and reason != "content changed":
-            print(f"[quiz]   Reason: {reason}")
+
+        # Only print output for quizzes being synced
+        print(f"{folder.name}")
         
         quiz_data = parse_quiz_folder(folder)
         if not quiz_data:
-            print(f"[quiz:warn] Could not parse {folder.name}")
+            print(f"⚠️ Could not parse")
             continue
-        
-        print(f"[quiz]   Name: {quiz_data.name}")
-        if quiz_data.module:
-            print(f"[quiz]   Module: {quiz_data.module}")
+
+        print(f"{quiz_data.name}")
         if quiz_data.question_groups:
-            print(f"[quiz]   Question groups: {len(quiz_data.question_groups)}")
-            for g in quiz_data.question_groups:
-                if g.bank_id:
-                    print(f"[quiz]     - bank_id={g.bank_id}: pick {g.pick} @ {g.points_per_question} pts")
-                else:
-                    print(f"[quiz]     - {g.bank_name}: pick {g.pick} @ {g.points_per_question} pts")
-        if quiz_data.inline_questions:
-            print(f"[quiz]   Inline questions: {len(quiz_data.inline_questions)}")
-        
+            total_questions = sum(g.pick for g in quiz_data.question_groups)
+            print(f"{total_questions} questions from {len(quiz_data.question_groups)} bank(s)")
+        elif quiz_data.inline_questions:
+            print(f"{len(quiz_data.inline_questions)} inline questions")
+
         if args.dry_run:
-            if quiz_data.name in existing_quizzes:
-                print(f"[quiz]   (dry-run) Would update existing quiz '{quiz_data.name}'")
-            else:
-                print(f"[quiz]   (dry-run) Would create quiz '{quiz_data.name}'")
+            action = "update" if quiz_data.name in existing_quizzes else "create"
+            print(f"(dry-run: would {action})")
             success_count += 1
         else:
             quiz = create_canvas_quiz(course, quiz_data, bank_map, existing_quizzes, api_url, api_key, course_id_int)
             if quiz:
                 # Update cache with new hash
                 update_quiz_cache(folder, quiz.id, quiz_cache)
+                print(f"✅")
                 success_count += 1
-        
-        print()
-    
+
+        print()  # Blank line after each quiz
+
     # Save cache
     if not args.dry_run:
         save_quiz_cache(quiz_cache)
-    
-    print(f"[quiz] Completed: {success_count} synced, {skipped_count} unchanged")
+
+    fence("Summary")
+    if skipped_count > 0:
+        print(f"⏭️ Skipped {skipped_count} unchanged")
+    print(f"✅ Synced {success_count}")
 
 
 if __name__ == "__main__":

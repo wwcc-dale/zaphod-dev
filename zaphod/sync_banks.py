@@ -9,12 +9,12 @@ sync_banks.py
 Imports question bank files (*.bank.md) into Canvas question banks using
 the QTI Content Migration API.
 
-Bank files live in quiz-banks/ and contain questions in a simple text format:
+Bank files live in question-banks/ and contain questions in a simple text format:
 
-    quiz-banks/
+    question-banks/
     ├── chapter1.bank.md
     ├── chapter2.bank.md
-    [?]Ã¢â‚¬Â[?]Ã¢â€šÂ¬[?]Ã¢â€šÂ¬ final-exam-pool.bank.md
+    └── final-exam-pool.bank.md
 
 File format (*.bank.md):
     ---
@@ -84,7 +84,7 @@ import yaml
 from zaphod.config_utils import get_course_id
 from zaphod.canvas_client import get_canvas_credentials
 from zaphod.security_utils import get_rate_limiter, mask_sensitive, is_safe_url
-from zaphod.icons import SUCCESS
+from zaphod.icons import SUCCESS, fence
 
 
 # ============================================================================
@@ -93,7 +93,7 @@ from zaphod.icons import SUCCESS
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 COURSE_ROOT = Path.cwd()
-QUIZ_BANKS_DIR = COURSE_ROOT / "quiz-banks"
+QUESTION_BANKS_DIR = COURSE_ROOT / "question-banks"
 METADATA_DIR = COURSE_ROOT / "_course_metadata"
 BANK_CACHE_FILE = METADATA_DIR / "bank_cache.json"
 
@@ -112,7 +112,7 @@ def load_bank_cache() -> Dict[str, Any]:
         try:
             return json.loads(BANK_CACHE_FILE.read_text())
         except Exception as e:
-            print(f"[bank:warn] Failed to load cache: {e}")
+            print(f"⚠️ Failed to load cache: {e}")
     return {}
 
 
@@ -122,7 +122,7 @@ def save_bank_cache(cache: Dict[str, Any]):
         METADATA_DIR.mkdir(parents=True, exist_ok=True)
         BANK_CACHE_FILE.write_text(json.dumps(cache, indent=2))
     except Exception as e:
-        print(f"[bank:warn] Failed to save cache: {e}")
+        print(f"⚠️ Failed to save cache: {e}")
 
 
 def compute_bank_hash(file_path: Path) -> str:
@@ -480,7 +480,7 @@ def parse_bank_file(path: Path) -> Optional[BankData]:
                 q.number = auto_number
                 questions.append(q)
         except Exception as e:
-            print(f"[bank:warn] Failed to parse question block: {e}")
+            print(f"⚠️ Failed to parse question block: {e}")
 
     if not questions:
         return None
@@ -754,7 +754,7 @@ def verify_bank_exists(course_id: int, bank_name: str, api_url: str, api_key: st
                 if title == bank_name:
                     return bank.get("id")
     except requests.exceptions.Timeout:
-        print(f"[bank:warn] Timeout checking for existing bank")
+        print(f"⚠️ Timeout checking for existing bank")
     except Exception:
         pass
     
@@ -769,69 +769,70 @@ def upload_bank_to_canvas(
 ) -> Optional[int]:
     """
     Upload bank via QTI Content Migration API.
-    
+
     Returns migration_id on success, None on failure.
     """
-    print(f"[bank] Creating QTI package for '{bank.bank_name}'...")
+    fence(f"Uploading: {bank.bank_name}")
+
     package_bytes = create_qti_package(bank)
     package_size = len(package_bytes)
-    print(f"[bank]   Package size: {package_size} bytes, {len(bank.questions)} questions")
-    
+    print(f"Package: {package_size} bytes, {len(bank.questions)} questions")
+
     migration_url = f"{api_url}/api/v1/courses/{course_id}/content_migrations"
     headers = {"Authorization": f"Bearer {api_key}"}
-    
+
     init_data = {
         "migration_type": "qti_converter",
         "settings[question_bank_name]": bank.bank_name,
         "pre_attachment[name]": f"{bank.bank_name}.zip",
         "pre_attachment[size]": package_size,
     }
-    
-    print(f"[bank] Initiating content migration...")
+
+    print(f"Initiating migration...")
     try:
         get_rate_limiter().wait_if_needed()  # SECURITY: Rate limiting
         resp = requests.post(migration_url, headers=headers, data=init_data, timeout=REQUEST_TIMEOUT)
         get_rate_limiter().check_response_headers(dict(resp.headers))
     except requests.exceptions.Timeout:
-        print(f"[bank:error] Timeout initiating migration")
+        print(f"❌ Timeout initiating migration")
         return None
     
     if resp.status_code not in (200, 201):
-        print(f"[bank:error] Failed to initiate migration (HTTP {resp.status_code})")
+        print(f"❌ Failed to initiate migration (HTTP {resp.status_code})")
         return None
     
     migration_data = resp.json()
     migration_id = migration_data.get("id")
-    print(f"[bank]   Migration ID: {migration_id}")
-    
+    print(f"Migration ID: {migration_id}")
+
     pre_attachment = migration_data.get("pre_attachment")
     if not pre_attachment:
-        print(f"[bank:error] No pre_attachment in response")
+        print(f"❌ No pre_attachment in response")
         return None
-    
+
     upload_url = pre_attachment.get("upload_url")
     upload_params = pre_attachment.get("upload_params", {})
 
     # SECURITY: Validate upload URL to prevent SSRF attacks
     if not upload_url:
-        print(f"[bank:error] No upload_url in response")
+        print(f"❌ No upload_url in response")
         return None
     if not is_safe_url(upload_url):
-        print(f"[bank:error] SECURITY: Blocked unsafe upload URL")
+        print(f"❌ SECURITY: Blocked unsafe upload URL")
         return None
 
-    print(f"[bank] Uploading QTI package...")
+    print(f"Uploading package...")
     files = {"file": (f"{bank.bank_name}.zip", package_bytes, "application/zip")}
     
     try:
         get_rate_limiter().wait_if_needed()  # SECURITY: Rate limiting
         upload_resp = requests.post(upload_url, data=upload_params, files=files, timeout=UPLOAD_TIMEOUT)
     except requests.exceptions.Timeout:
-        print(f"[bank:error] Timeout uploading QTI package")
+        print(f"❌ Timeout uploading QTI package")
         return None
     
     if upload_resp.status_code not in (200, 201, 301, 302, 303):
-        print(f"[bank:error] Failed to upload file (HTTP {upload_resp.status_code})")
+        print(f"❌ Failed to upload file (HTTP {upload_resp.status_code})")
         return None
     
     if upload_resp.status_code in (301, 302, 303):
@@ -839,7 +840,7 @@ def upload_bank_to_canvas(
         if confirm_url:
             # SECURITY: Validate redirect URL to prevent SSRF attacks
             if not is_safe_url(confirm_url):
-                print(f"[bank:warn] SECURITY: Blocked unsafe redirect URL, skipping confirmation")
+                print(f"⚠️ SECURITY: Blocked unsafe redirect URL, skipping confirmation")
             else:
                 try:
                     get_rate_limiter().wait_if_needed()  # SECURITY: Rate limiting
@@ -847,8 +848,8 @@ def upload_bank_to_canvas(
                 except requests.exceptions.Timeout:
                     pass  # Not critical
     
-    print(f"[bank]   Upload complete")
-    
+    print(f"Upload complete")
+
     # Poll for completion
     progress_url = migration_data.get("progress_url")
     migration_failed = False
@@ -856,14 +857,14 @@ def upload_bank_to_canvas(
 
     # SECURITY: Validate progress URL to prevent SSRF attacks
     if progress_url and not is_safe_url(progress_url):
-        print(f"[bank:error] SECURITY: Blocked unsafe progress URL")
+        print(f"❌ SECURITY: Blocked unsafe progress URL")
         return None
 
     if progress_url:
-        print(f"[bank] Waiting for migration...")
+        print(f"Waiting for Canvas to process...")
         for attempt in range(30):
             time.sleep(2)
-            
+
             try:
                 get_rate_limiter().wait_if_needed()  # SECURITY: Rate limiting
                 progress_resp = requests.get(progress_url, headers=headers, timeout=MIGRATION_TIMEOUT)
@@ -871,15 +872,15 @@ def upload_bank_to_canvas(
                 continue
             if progress_resp.status_code != 200:
                 continue
-            
+
             progress = progress_resp.json()
             workflow_state = progress.get("workflow_state")
             completion = progress.get("completion", 0)
-            
-            print(f"[bank]   Progress: {completion}% ({workflow_state})")
-            
+
+            print(f"Progress: {completion}% ({workflow_state})")
+
             if workflow_state == "completed":
-                print(f"[bank] {SUCCESS} Bank '{bank.bank_name}' imported successfully")
+                print(f"{SUCCESS} Import complete")
                 return migration_id
             elif workflow_state == "failed":
                 migration_failed = True
@@ -887,23 +888,23 @@ def upload_bank_to_canvas(
         else:
             # Loop completed without break - timed out
             timed_out = True
-            print(f"[bank:warn] Migration timed out after 60s (still queued/running)")
-            print(f"[bank:warn] Migration ID {migration_id} may complete later - check Canvas")
-    
+            print(f"⚠️ Migration timed out after 60s (still queued/running)")
+            print(f"⚠️ Migration ID {migration_id} may complete later - check Canvas")
+
     # Verify bank exists even if migration "failed" or timed out
     if migration_failed or timed_out:
-        print(f"[bank] Verifying import...")
+        print(f"Verifying import...")
         time.sleep(1)
-        
+
         bank_id = verify_bank_exists(course_id, bank.bank_name, api_url, api_key)
         if bank_id:
-            print(f"[bank] {SUCCESS} Bank '{bank.bank_name}' exists (id={bank_id}) - import succeeded")
+            print(f"{SUCCESS} Bank verified (id={bank_id})")
             return migration_id
         else:
             if timed_out:
-                print(f"[bank:warn] Cannot verify via API - migration may still be processing")
+                print(f"⚠️ Cannot verify via API - migration may still be processing")
             else:
-                print(f"[bank:warn] Cannot verify via API, but import likely succeeded")
+                print(f"⚠️ Cannot verify via API, but import likely succeeded")
             return migration_id
     
     return migration_id
@@ -935,24 +936,24 @@ def natural_sort_key(path: Path) -> tuple:
 
 
 def iter_bank_files_full() -> List[Path]:
-    """Get all bank files in quiz-banks/."""
-    if not QUIZ_BANKS_DIR.exists():
+    """Get all bank files in question-banks/."""
+    if not QUESTION_BANKS_DIR.exists():
         return []
     
     files = []
     # New format: *.bank.md
-    files.extend(QUIZ_BANKS_DIR.glob("*.bank.md"))
+    files.extend(QUESTION_BANKS_DIR.glob("*.bank.md"))
     # Legacy format: *.quiz.txt (deprecated)
-    legacy = list(QUIZ_BANKS_DIR.glob("*.quiz.txt"))
+    legacy = list(QUESTION_BANKS_DIR.glob("*.quiz.txt"))
     if legacy:
-        print(f"[bank:warn] Found {len(legacy)} legacy *.quiz.txt files - consider renaming to *.bank.md")
+        print(f"⚠️ Found {len(legacy)} legacy *.quiz.txt files - consider renaming to *.bank.md")
     files.extend(legacy)
     
     return sorted(files, key=natural_sort_key)
 
 
 def iter_bank_files_incremental(changed_files: List[Path]) -> List[Path]:
-    """Filter changed files to bank files under quiz-banks/."""
+    """Filter changed files to bank files under question-banks/."""
     result: List[Path] = []
     seen: set[Path] = set()
 
@@ -967,10 +968,10 @@ def iter_bank_files_incremental(changed_files: List[Path]) -> List[Path]:
         except ValueError:
             continue
         
-        if not rel.parts or rel.parts[0] != "quiz-banks":
+        if not rel.parts or rel.parts[0] != "question-banks":
             continue
         
-        path = QUIZ_BANKS_DIR / rel.name if len(rel.parts) == 2 else COURSE_ROOT / rel
+        path = QUESTION_BANKS_DIR / rel.name if len(rel.parts) == 2 else COURSE_ROOT / rel
         if path.is_file() and path not in seen:
             seen.add(path)
             result.append(path)
@@ -1024,47 +1025,47 @@ def main():
             # Watch mode: use ZAPHOD_CHANGED_FILES for file list
             bank_files = iter_bank_files_incremental(changed_files)
             if not bank_files:
-                print(f"[bank] No changed bank files under {QUIZ_BANKS_DIR}; nothing to do.")
+                print(f"No changed bank files under {QUESTION_BANKS_DIR}; nothing to do.")
                 return
         else:
             # Regular sync: get all files, will filter by cache hash
             bank_files = iter_bank_files_full()
             if not bank_files:
-                print(f"[bank] No bank files (*.bank.md) under {QUIZ_BANKS_DIR}")
+                print(f"No bank files (*.bank.md) under {QUESTION_BANKS_DIR}")
                 return
     
-    print(f"[bank] Processing {len(bank_files)} bank file(s)")
-    print(f"[bank] Course ID: {course_id_int}")
+    fence("Syncing Question Banks")
+    print(f"Course ID: {course_id_int}")
+    print(f"Bank files: {len(bank_files)}")
     print()
-    
+
     success_count = 0
     skipped_count = 0
     for path in bank_files:
-        print(f"[bank] === {path.name} ===")
-        
         # Check if bank needs sync (based on content hash)
         if not bank_needs_sync(path, bank_cache, force=args.force):
-            print(f"[bank]   (unchanged, skipping)")
+            print(f"{path.name} (unchanged, skipping)")
             skipped_count += 1
             continue
-        
+
         # Warn about potential duplicate if using --force
         if args.force:
             prev_upload = bank_already_uploaded(path, bank_cache)
             if prev_upload.get("uploaded_at"):
-                print(f"[bank:warn] Bank was uploaded at {prev_upload['uploaded_at']}")
-                print(f"[bank:warn] Using --force will create a DUPLICATE bank in Canvas!")
-        
+                print(f"⚠️ {path.name} was uploaded at {prev_upload['uploaded_at']}")
+                print(f"⚠️ Using --force will create a DUPLICATE bank in Canvas!")
+
         bank = parse_bank_file(path)
         if not bank:
-            print(f"[bank:warn] No questions parsed from {path.name}")
+            print(f"⚠️ No questions parsed from {path.name}")
             continue
-        
-        print(f"[bank]   Title: {bank.title}")
-        print(f"[bank]   Questions: {len(bank.questions)}")
-        
+
+        print(f"{path.name}")
+        print(f"Title: {bank.title}")
+        print(f"Questions: {len(bank.questions)}")
+
         if args.dry_run:
-            print(f"[bank]   (dry-run) Would import to bank '{bank.bank_name}'")
+            print(f"(dry-run mode)")
             success_count += 1
         else:
             migration_id = upload_bank_to_canvas(course_id_int, bank, api_url, api_key)
@@ -1072,14 +1073,15 @@ def main():
                 # Update cache with new hash and migration info
                 update_bank_cache(path, bank.bank_name, bank_cache, migration_id)
                 success_count += 1
-        
-        print()
-    
+
+        print()  # Blank line after each bank
+
     # Save cache
     if not args.dry_run:
         save_bank_cache(bank_cache)
-    
-    print(f"[bank] Completed: {success_count} synced, {skipped_count} unchanged")
+
+    fence("Summary")
+    print(f"{SUCCESS} Completed: {success_count} synced, {skipped_count} unchanged")
 
 
 if __name__ == "__main__":

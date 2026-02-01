@@ -44,7 +44,7 @@ from typing import Dict, Any, Optional
 from urllib.parse import urlparse
 
 from zaphod.security_utils import is_safe_path, is_safe_url
-from zaphod.icons import SUCCESS, WARNING
+from zaphod.icons import SUCCESS, WARNING, fence
 
 # Optional: requests for HTTP downloads
 try:
@@ -112,7 +112,7 @@ def copy_from_smb(source_path: str, dest_path: Path) -> bool:
     source = Path(source_path)
     
     if not source.exists():
-        print(f"    [error] Source not found: {source}")
+        print(f"❌ Source not found: {source}")
         return False
     
     try:
@@ -120,20 +120,20 @@ def copy_from_smb(source_path: str, dest_path: Path) -> bool:
         shutil.copy2(source, dest_path)
         return True
     except Exception as e:
-        print(f"    [error] Copy failed: {e}")
+        print(f"❌ Copy failed: {e}")
         return False
 
 
 def download_from_http(url: str, dest_path: Path) -> bool:
     """Download file from HTTP(S) URL."""
     if not REQUESTS_AVAILABLE:
-        print("    [error] 'requests' library not installed. Run: pip install requests")
+        print(f"❌ 'requests' library not installed. Run: pip install requests")
         return False
     
     # SECURITY: Validate URL to prevent SSRF attacks
     if not is_safe_url(url):
-        print(f"    [SECURITY] Blocked potentially unsafe URL: {url}")
-        print("    [SECURITY] Internal/private addresses are not allowed")
+        print(f"🔒 Blocked potentially unsafe URL: {url}")
+        print(f"🔒 Internal/private addresses are not allowed")
         return False
     
     try:
@@ -148,7 +148,7 @@ def download_from_http(url: str, dest_path: Path) -> bool:
         
         return True
     except Exception as e:
-        print(f"    [error] Download failed: {e}")
+        print(f"❌ Download failed: {e}")
         return False
 
 
@@ -170,19 +170,19 @@ def hydrate_file(
     
     # SECURITY: Validate path is within course directory (prevent path traversal)
     if not is_safe_path(COURSE_ROOT, local_path):
-        print(f"  [SECURITY] Blocked path traversal attempt: {relative_path}")
+        print(f"🔒 Blocked path traversal attempt: {relative_path}")
         return 'failed'
     
     # Check if file exists locally
     if local_path.exists():
         if verify and checksum:
             if verify_checksum(local_path, checksum):
-                print(f"  {SUCCESS} {relative_path} (exists, checksum OK)")
+                print(f"{SUCCESS} {relative_path} (exists, checksum OK)")
                 return 'skipped'
             else:
-                print(f"  {WARNING} {relative_path} (exists, checksum MISMATCH - will re-download)")
+                print(f"{WARNING} {relative_path} (exists, checksum MISMATCH - will re-download)")
         else:
-            print(f"  {SUCCESS} {relative_path} (exists)")
+            print(f"{SUCCESS} {relative_path} (exists)")
             return 'skipped'
     
     # Build source path
@@ -195,11 +195,11 @@ def hydrate_file(
     size_mb = size_bytes / (1024 * 1024) if size_bytes else 0
     
     if dry_run:
-        print(f"  â†’ {relative_path} ({size_mb:.1f} MB) - would download from {source_path}")
+        print(f"→ {relative_path} ({size_mb:.1f} MB) - would download from {source_path}")
         return 'skipped'
-    
-    print(f"  â†“ {relative_path} ({size_mb:.1f} MB)")
-    print(f"    from: {source_path}")
+
+    print(f"↓ {relative_path} ({size_mb:.1f} MB)")
+    print(f"from: {source_path}")
     
     # Download/copy
     if is_http_url(source):
@@ -213,9 +213,9 @@ def hydrate_file(
     # Verify after download
     if verify and checksum:
         if verify_checksum(local_path, checksum):
-            print(f"    {SUCCESS} checksum verified")
+            print(f"{SUCCESS} checksum verified")
         else:
-            print(f"    {WARNING} checksum mismatch after download!")
+            print(f"{WARNING} checksum mismatch after download!")
             return 'failed'
     
     return 'downloaded'
@@ -256,26 +256,27 @@ def main():
     items = manifest.get('items', [])
     
     if not items:
-        print("[hydrate] Manifest is empty - no media files to hydrate.")
+        print("Manifest is empty - no media files to hydrate.")
         return
-    
-    print(f"[hydrate] Course: {COURSE_ROOT}")
-    print(f"[hydrate] Source: {source}")
-    print(f"[hydrate] Items in manifest: {len(items)}")
+
+    fence("Hydrating Media Files")
+    print(f"Course: {COURSE_ROOT}")
+    print(f"Source: {source}")
+    print(f"Items: {len(items)}")
     if args.dry_run:
-        print("[hydrate] DRY RUN - no files will be downloaded")
-    print("")
-    
+        print("DRY RUN MODE")
+    print()
+
     # Process each item
     stats = {'skipped': 0, 'downloaded': 0, 'failed': 0}
-    
+
     for item in items:
         result = hydrate_file(item, source, verify=verify, dry_run=args.dry_run)
         stats[result] += 1
-    
+
     # Summary
-    print("")
-    print(f"[hydrate] Summary: {stats['downloaded']} downloaded, {stats['skipped']} skipped, {stats['failed']} failed")
+    fence("Summary")
+    print(f"{SUCCESS} Downloaded: {stats['downloaded']}, Skipped: {stats['skipped']}, Failed: {stats['failed']}")
     
     if stats['failed'] > 0:
         sys.exit(1)

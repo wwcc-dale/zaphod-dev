@@ -56,6 +56,7 @@ from zaphod.errors import (
     rubric_validation_error,
     CanvasAPIError,
 )
+from zaphod.icons import fence, SUCCESS, WARNING, INFO
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -103,10 +104,10 @@ def load_outcome_map() -> Dict[str, int]:
                 if isinstance(data, dict):
                     # Convert all values to int
                     _outcome_map_cache = {str(k): int(v) for k, v in data.items()}
-                    print(f"[rubrics] Loaded outcome map from {path} ({len(_outcome_map_cache)} outcomes)")
+                    print(f"Loaded outcome map from {path} ({len(_outcome_map_cache)} outcomes)")
                     return _outcome_map_cache
             except Exception as e:
-                print(f"[rubrics:warn] Failed to load outcome map from {path}: {e}")
+                print(f"⚠️ Failed to load outcome map from {path}: {e}")
     
     _outcome_map_cache = {}
     return _outcome_map_cache
@@ -388,10 +389,10 @@ def build_rubric_payload(
             outcome_id = outcome_map.get(str(c_outcome_code))
             if outcome_id:
                 data[f"{base}[learning_outcome_id]"] = str(outcome_id)
-                print(f"    [outcome] Criterion '{c_desc}' aligned to {c_outcome_code} (ID {outcome_id})")
+                print(f" Criterion '{c_desc}' aligned to {c_outcome_code} (ID {outcome_id})")
             else:
-                print(f"    [outcome:warn] Criterion '{c_desc}' references unknown outcome '{c_outcome_code}'")
-                print(f"                   Add it to outcome_map.json: {{\"{c_outcome_code}\": <canvas_outcome_id>}}")
+                print(f"⚠️ Criterion '{c_desc}' references unknown outcome '{c_outcome_code}'")
+                print(f"             Add it to outcome_map.json: {{\"{c_outcome_code}\": <canvas_outcome_id>}}")
 
         for j, rating in enumerate(ratings):
             r_desc = rating.get("description")
@@ -468,7 +469,7 @@ def process_assignment_folder(course: Course, folder: Path):
     try:
         meta = load_meta(folder)
     except FileNotFoundError as e:
-        print(f"[rubrics:err] {folder.name}: {e}")
+        print(f"❌ {folder.name}: {e}")
         return
 
     ctype = str(meta.get("type", "")).lower()
@@ -479,38 +480,38 @@ def process_assignment_folder(course: Course, folder: Path):
         return
 
     if not name:
-        print(f"[rubrics:err] {folder.name}: meta.json missing 'name'")
+        print(f"❌ {folder.name}: meta.json missing 'name'")
         return
 
     assignment = find_assignment_by_name(course, name)
     if not assignment:
-        print(f"[rubrics:err] {folder.name}: assignment name {name!r} not found in Canvas")
+        print(f"❌ {folder.name}: assignment name {name!r} not found in Canvas")
         return
 
     print(
-        f"[rubrics] Processing {folder.name}: "
+        f"Processing {folder.name}: "
         f"associating rubric to assignment {assignment.id} ({assignment.name})"
     )
 
     try:
         rubric_spec = load_rubric_spec(rubric_file)
     except Exception as e:
-        print(f"[rubrics:err] {folder.name}: failed to load rubric spec: {e}")
+        print(f"❌ {folder.name}: failed to load rubric spec: {e}")
         return
 
     try:
         payload = build_rubric_payload(rubric_spec, assignment, rubric_file)
     except Exception as e:
-        print(f"[rubrics:err] {folder.name}: invalid rubric spec: {e}")
+        print(f"❌ {folder.name}: invalid rubric spec: {e}")
         return
 
     try:
         result = create_rubric_via_api(str(course.id), payload)
         rubric = result.get("rubric") or {}
         rubric_id = rubric.get("id")
-        print(f"[rubrics] Created rubric id={rubric_id} for assignment {assignment.id}")
+        print(f"Created rubric id={rubric_id} for assignment {assignment.id}")
     except Exception as e:
-        print(f"[rubrics:err] {folder.name}: failed to create rubric: {e}")
+        print(f"❌ {folder.name}: failed to create rubric: {e}")
 
 
 # ---------- Main ----------
@@ -525,22 +526,22 @@ def main():
     if not content_dir.exists():
         raise SystemExit(f"No content directory found. Create content/ or pages/ in {COURSE_ROOT}")
 
-    print(f"[rubrics] Using content directory: {content_dir.name}/")
+    print(f"Using content directory: {content_dir.name}/")
 
     canvas = make_canvas_api_obj()  # From canvas_client
     course = canvas.get_course(int(course_id))
 
     folders = iter_assignment_folders_with_rubrics()
     if not folders:
-        print("[rubrics] No .assignment folders with rubric.yaml found under", content_dir)
+        print("No .assignment folders with rubric.yaml found under", content_dir)
         return
 
-    print(f"[rubrics] Syncing rubrics for course {course.name} (ID {course_id})")
+    print(f"Syncing rubrics for course {course.name} (ID {course_id})")
     for folder in folders:
         process_assignment_folder(course, folder)
         print()
 
-    print("[rubrics] Done.")
+    print("Done.")
 
 
 if __name__ == "__main__":

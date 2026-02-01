@@ -276,6 +276,29 @@ def use_ascii_icons():
 # Output Helper Functions
 # =========================================================================
 
+def fence(label: str = "") -> None:
+    """
+    Print a visual separator for discrete pipeline stages.
+
+    Usage:
+        fence("Syncing Question Banks")
+        fence()  # Just a divider with timestamp
+
+    Output:
+        ......................................................................
+        [14:23:45] Syncing Question Banks
+
+    """
+    from datetime import datetime
+    ts = datetime.now().strftime("%H:%M:%S")
+    print("." * 70)
+    if label:
+        print(f"[{ts}] {label}")
+    else:
+        print(f"[{ts}]")
+    print()
+
+
 def log(icon: str, message: str, prefix: str = "") -> str:
     """
     Format a log message with icon.

@@ -73,7 +73,7 @@ def build_rows(course_clos: List[Dict[str, Any]]) -> List[List[str]]:
         ratings = clo.get("ratings") or []
 
         if not code or not title or not vendor_guid:
-            print(f"[outcomes:warn] Skipping CLO with missing code/title/vendor_guid: {clo}")
+            print(f"⚠️ Skipping CLO with missing code/title/vendor_guid: {clo}")
             continue
 
         try:
@@ -140,7 +140,7 @@ def write_csv(rows: List[List[str]]):
                 padded.append("")
             writer.writerow(padded)
 
-    print(f"[outcomes] Wrote CSV with {len(rows)} outcomes to {COURSE_OUTCOMES_CSV}")
+    print(f"Wrote CSV with {len(rows)} outcomes to {COURSE_OUTCOMES_CSV}")
 
 
 def import_csv_to_course(canvas: Canvas, course_id: int):
@@ -148,11 +148,11 @@ def import_csv_to_course(canvas: Canvas, course_id: int):
     POST /api/v1/courses/:course_id/outcome_imports via Course.import_outcome().
     """
     course = canvas.get_course(course_id)
-    print(f"[outcomes] Importing CSV into course {course_id}...")
+    print(f"Importing CSV into course {course_id}...")
     outcome_import = course.import_outcome(str(COURSE_OUTCOMES_CSV))
     attrs = getattr(outcome_import, "_attributes", {})
     print(
-        f"[outcomes] Outcome import created: id={attrs.get('id')} "
+        f"Outcome import created: id={attrs.get('id')} "
         f"workflow_state={attrs.get('workflow_state')}"
     )
 
@@ -183,7 +183,7 @@ def outcomes_yaml_changed() -> bool:
 
 def main():
     if not outcomes_yaml_changed():
-        print("[outcomes] outcomes.yaml not changed; skipping CLO sync.")
+        print("outcomes.yaml not changed; skipping CLO sync.")
         return
 
     course_id = get_course_id()
@@ -195,12 +195,12 @@ def main():
     course_clos: List[Dict[str, Any]] = yaml_data.get("course_outcomes") or []
 
     if not course_clos:
-        print("[outcomes] No course_outcomes defined; nothing to do")
+        print("No course_outcomes defined; nothing to do")
         return
 
     rows = build_rows(course_clos)
     if not rows:
-        print("[outcomes] No valid CLO rows built; nothing written")
+        print("No valid CLO rows built; nothing written")
         return
 
     write_csv(rows)

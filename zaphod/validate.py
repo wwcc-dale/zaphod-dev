@@ -56,7 +56,7 @@ class Issue:
         msg = f"  {icon} {self.message}"
         
         if self.suggestion:
-            msg += f"\n    â†’ {self.suggestion}"
+            msg += f"\n    → {self.suggestion}"
         
         return msg
 
@@ -115,7 +115,7 @@ class CourseValidator:
         self.content_dir = content_dir if content_dir.exists() else pages_dir
         
         self.outcomes_dir = course_path / "outcomes"
-        self.quiz_banks_dir = course_path / "quiz-banks"
+        self.question_banks_dir = course_path / "question-banks"
         self.modules_dir = course_path / "modules"
         
         # Include directories: shared/ (new) and includes/ (legacy)
@@ -188,9 +188,9 @@ class CourseValidator:
                         self._validate_content_folder(folder, result)
                         result.files_checked += 1
         
-        # Validate quiz banks
-        if self.quiz_banks_dir.exists():
-            for quiz_file in self.quiz_banks_dir.glob("*.quiz.txt"):
+        # Validate question banks
+        if self.question_banks_dir.exists():
+            for quiz_file in self.question_banks_dir.glob("*.quiz.txt"):
                 self._validate_quiz(quiz_file, result)
                 result.files_checked += 1
         

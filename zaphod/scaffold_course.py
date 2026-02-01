@@ -10,7 +10,7 @@ Creates:
 - shared/            Shared variables and includes
 - modules/           Module ordering configuration
 - outcomes/          Learning outcomes definitions
-- quiz-banks/        Question bank files
+- question-banks/        Question bank files
 - assets/            Shared media files
 - rubrics/           Shared rubrics and reusable rows
 - _course_metadata/  Internal state and cache files
@@ -33,7 +33,7 @@ CONTENT_DIR = COURSE_ROOT / "content"
 SHARED_DIR = COURSE_ROOT / "shared"
 MODULES_DIR = COURSE_ROOT / "modules"
 OUTCOMES_DIR = COURSE_ROOT / "outcomes"
-QUIZ_BANKS_DIR = COURSE_ROOT / "quiz-banks"
+QUESTION_BANKS_DIR = COURSE_ROOT / "question-banks"
 ASSETS_DIR = COURSE_ROOT / "assets"
 METADATA_DIR = COURSE_ROOT / "_course_metadata"
 RUBRICS_DIR = COURSE_ROOT / "rubrics"
@@ -350,7 +350,7 @@ def main() -> None:
         SHARED_DIR,
         MODULES_DIR,
         OUTCOMES_DIR,
-        QUIZ_BANKS_DIR,
+        QUESTION_BANKS_DIR,
         ASSETS_DIR,
         METADATA_DIR,
         RUBRICS_DIR,
@@ -383,7 +383,7 @@ def main() -> None:
     write_file(METADATA_DIR / "defaults.json", DEFAULTS_JSON, force=False)
 
     # Sample question bank (new .bank.md format)
-    write_file(QUIZ_BANKS_DIR / "sample.bank.md", QUIZ_SAMPLE_BANK, force=args.force)
+    write_file(QUESTION_BANKS_DIR / "sample.bank.md", QUIZ_SAMPLE_BANK, force=args.force)
 
     # Sample quiz (uses question bank)
     write_file(content_dir / "sample-quiz.quiz" / "index.md", QUIZ_SAMPLE_QUIZ, force=args.force)

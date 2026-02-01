@@ -32,6 +32,7 @@ from zaphod.errors import (
     invalid_frontmatter_error,
     FileNotFoundError as ZaphodFileNotFoundError,
 )
+from zaphod.icons import SUCCESS
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -172,7 +173,7 @@ def load_shared_variables() -> dict:
                 data = yaml.safe_load(path.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
                     variables.update(data)
-                    print(f"[variables] Loaded global variables from {path}")
+                    print(f"ℹ️ Loaded global variables from {path}")
             except Exception as e:
                 print(f"[variables:warn] Failed to load {path}: {e}")
             break
@@ -188,7 +189,7 @@ def load_shared_variables() -> dict:
                 data = yaml.safe_load(path.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
                     variables.update(data)
-                    print(f"[variables] Loaded course variables from {path}")
+                    print(f"ℹ️ Loaded course variables from {path}")
             except Exception as e:
                 print(f"[variables:warn] Failed to load {path}: {e}")
             break
@@ -268,7 +269,7 @@ def interpolate_includes(body: str, folder: Path, metadata: dict) -> str:
         name = match.group(1)
         inc_path = resolve_include_path(folder, name)
         if not inc_path:
-            print(f"[frontmatter:warn] {folder.name}: include '{name}' not found")
+            print(f"⚠️ {folder.name}: include '{name}' not found")
             return match.group(0)
         try:
             inc_content = inc_path.read_text(encoding="utf-8")
@@ -278,7 +279,7 @@ def interpolate_includes(body: str, folder: Path, metadata: dict) -> str:
             inc_content = interpolate_includes(inc_content, folder, metadata)
             return inc_content
         except Exception as e:
-            print(f"[frontmatter:warn] {folder.name}: failed to read include '{name}': {e}")
+            print(f"⚠️ {folder.name}: failed to read include '{name}': {e}")
             return match.group(0)
 
     return INCLUDE_RE.sub(replace, body)
@@ -386,7 +387,7 @@ def process_folder(folder: Path):
             content = interpolate_body(content, metadata)
 
         except Exception as e:
-            print(f"[frontmatter:warn] {folder.name}: {e}")
+            print(f"⚠️ {folder.name}: {e}")
         else:
             # Infer type from folder extension if not set
             if "type" not in metadata:
@@ -400,20 +401,20 @@ def process_folder(folder: Path):
                 inferred_type = ext_to_type.get(folder.suffix)
                 if inferred_type:
                     metadata["type"] = inferred_type
-                    print(f"  [inferred type] '{inferred_type}' from folder extension")
-            
+                    print(f"inferred type: '{inferred_type}'")
+
             # Infer name from folder if not set
             if "name" not in metadata:
                 folder_stem = folder.stem
                 nice_name = re.sub(r'^\d+-', '', folder_stem)
                 nice_name = nice_name.replace('-', ' ').replace('_', ' ').title()
                 metadata["name"] = nice_name
-                print(f"  [inferred name] '{nice_name}' from folder name")
+                print(f"inferred name: '{nice_name}'")
             
             # Require minimum keys for a valid Canvas object
             for k in ["name", "type"]:
                 if k not in metadata:
-                    print(f"[frontmatter:warn] {folder.name}: missing '{k}', using meta.json if present")
+                    print(f"⚠️ {folder.name}: missing '{k}', using meta.json if present")
                     break
             else:
                 # Infer module from directory structure if not explicitly set
@@ -421,22 +422,24 @@ def process_folder(folder: Path):
                     inferred = infer_module_from_path(folder)
                     if inferred:
                         metadata["modules"] = [inferred]
-                        print(f"  [inferred module] '{inferred}' from directory")
+                        print(f"inferred module: '{inferred}'")
                 
                 with meta_path.open("w", encoding="utf-8") as f:
                     json.dump(metadata, f, indent=2, ensure_ascii=False)
                 with source_path.open("w", encoding="utf-8") as f:
                     f.write(content)
-                print(f"[✓ frontmatter] {folder.name}")
+                print(f"{SUCCESS} {folder.name}")
+                print()  # Blank line after each folder
                 return
 
     # 2) Fallback: existing meta.json + source.md
     if has_meta and has_source:
-        print(f"[↻ meta.json] {folder.name}")
+        print(f"⏭️ {folder.name} (using existing meta.json)")
+        print()  # Blank line after each folder
         return
 
     # 3) Nothing usable
-    print(f"[frontmatter:err] {folder.name}: no usable metadata (index.md or meta.json/source.md)")
+    print(f"❌ {folder.name}: no usable metadata (index.md or meta.json/source.md)")
 
 
 if __name__ == "__main__":
@@ -446,7 +449,7 @@ if __name__ == "__main__":
     if not _CONTENT_DIR.exists():
         raise SystemExit(f"No content directory found. Create content/ or pages/ in {COURSE_ROOT}")
 
-    print(f"[frontmatter] Using content directory: {_CONTENT_DIR.name}/")
+    print(f"Using content directory: {_CONTENT_DIR.name}/")
     
     changed_files = get_changed_files()
 
@@ -454,11 +457,10 @@ if __name__ == "__main__":
         # Incremental mode: only process content folders for changed index.md files
         content_dirs = list(iter_changed_content_dirs(changed_files))
         if not content_dirs:
-            print("[frontmatter] No relevant changed index.md files; nothing to do.")
+            print("No relevant changed index.md files; nothing to do.")
     else:
         # Full mode: no env var => process everything (existing behavior)
         content_dirs = list(iter_all_content_dirs())
 
     for folder in content_dirs:
         process_folder(folder)
-        print()  # separate each folder's output with a blank line

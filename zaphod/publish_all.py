@@ -29,7 +29,7 @@ from zaphod.errors import (
     SyncError,
 )
 from zaphod.security_utils import is_safe_path
-from zaphod.icons import SUCCESS, ERROR
+from zaphod.icons import SUCCESS, ERROR, fence
 
 
 # Paths relative to course root (cwd)
@@ -62,7 +62,7 @@ def load_upload_cache() -> dict:
         try:
             return json.loads(UPLOAD_CACHE_FILE.read_text())
         except Exception as e:
-            print(f"[cache:warn] Failed to load cache: {e}")
+            print(f"⚠️ cache: Failed to load cache: {e}")
     return {}
 
 
@@ -72,7 +72,7 @@ def save_upload_cache(cache: dict):
         METADATA_DIR.mkdir(parents=True, exist_ok=True)
         UPLOAD_CACHE_FILE.write_text(json.dumps(cache, indent=2))
     except Exception as e:
-        print(f"[cache:warn] Failed to save cache: {e}")
+        print(f"⚠️ cache: Failed to save cache: {e}")
 
 
 # =============================================================================
@@ -169,7 +169,7 @@ def get_or_upload_video_file(course, folder: Path, filename: str, cache: dict):
             file_id = cache[cache_key]
             return course.get_file(file_id)
         except Exception as e:
-            print(f"[cache:warn] Cached file {clean_name} (id={file_id}) not found, will re-upload: {e}")
+            print(f"⚠️ cache: Cached file {clean_name} (id={file_id}) not found, will re-upload: {e}")
             del cache[cache_key]
 
     # 2) If no local file, search Canvas by name (legacy behavior)
@@ -394,8 +394,8 @@ def find_local_asset(folder: Path, filename: str) -> Path | None:
             locations = [str(m.relative_to(ASSETS_DIR)) for m in matches]
             print(f"[assets:warn] Multiple files named '{clean_name}' found:")
             for loc in locations:
-                print(f"              - assets/{loc}")
-            print(f"              Use explicit path, e.g., ../assets/{locations[0]}")
+                print(f"        - assets/{loc}")
+            print(f"        Use explicit path, e.g., ../assets/{locations[0]}")
             return None
     
     return None
@@ -622,11 +622,11 @@ def upload_file_to_canvas(course, file_path: Path, cache: dict):
 
 def bulk_upload_assets(course, cache: dict):
     """Bulk upload all asset files."""
-    print("[bulk-upload] Scanning for asset files...")
+    fence("Uploading Assets")
 
     asset_files = find_all_asset_files()
     if not asset_files:
-        print("[bulk-upload] No asset files found in assets/ directory.")
+        print("No asset files found in assets/ directory.")
         return
 
     # Group by extension for reporting
@@ -635,9 +635,10 @@ def bulk_upload_assets(course, cache: dict):
         ext = file_path.suffix.lower()
         file_types.setdefault(ext, []).append(file_path)
 
-    print(f"[bulk-upload] Found {len(asset_files)} asset file(s):")
+    print(f"Found {len(asset_files)} asset file(s):")
     for ext, files in sorted(file_types.items()):
-        print(f"  {ext}: {len(files)} file(s)")
+        print(f"{ext}: {len(files)} file(s)")
+    print()
 
     uploaded = skipped = failed = 0
 
@@ -648,7 +649,7 @@ def bulk_upload_assets(course, cache: dict):
             content_hash = hashlib.md5(file_path.read_bytes()).hexdigest()[:12]
             cache_key = f"{course.id}:{filename}:{content_hash}"
             if cache_key in cache:
-                print(f"[bulk-upload] {SUCCESS} {filename} (already uploaded)")
+                print(f"{SUCCESS} {filename} (cached)")
                 skipped += 1
                 continue
 
@@ -658,7 +659,8 @@ def bulk_upload_assets(course, cache: dict):
             failed += 1
             print(f"[bulk-upload]  {ERROR}  {filename}: {type(e).__name__}: {e}")
 
-    print(f"\n[bulk-upload] Summary: {uploaded} uploaded, {skipped} skipped, {failed} failed")
+    fence("Assets Summary")
+    print(f"{SUCCESS} Uploaded: {uploaded}, Skipped: {skipped}, Failed: {failed}")
     save_upload_cache(cache)
 
 
@@ -684,7 +686,7 @@ def main():
     if not content_dir.exists():
         raise SystemExit(f"No content directory found. Create content/ or pages/ in {COURSE_ROOT}")
 
-    print(f"[publish] Using content directory: {content_dir.name}/")
+    print(f"Using content directory: {content_dir.name}/")
 
     # Set up Canvas API using native Zaphod client
     canvas = make_canvas_api_obj()
@@ -693,13 +695,13 @@ def main():
     # Get course ID
     course_id = get_course_id(course_dir=COURSE_ROOT)
     if course_id is None:
-        raise SystemExit("[publish] Cannot determine Canvas course ID; aborting.")
+        raise SystemExit("Cannot determine Canvas course ID; aborting.")
 
     course = canvas.get_course(course_id)
     if args.dry_run:
-        print(f"[publish] DRY RUN - would publish to course: {course.name} (ID {course_id})")
+        print(f"DRY RUN - would publish to course: {course.name} (ID {course_id})")
     else:
-        print(f"[publish] Publishing to course: {course.name} (ID {course_id})")
+        print(f"Publishing to course: {course.name} (ID {course_id})")
 
     # Load upload cache
     cache = load_upload_cache()
@@ -707,7 +709,7 @@ def main():
     # Handle assets-only mode
     if args.assets_only:
         if args.dry_run:
-            print("[publish] (dry-run) Would upload assets")
+            print("(dry-run) Would upload assets")
         else:
             bulk_upload_assets(course, cache)
         return
@@ -718,10 +720,14 @@ def main():
     if changed_files:
         content_dirs = list(iter_changed_content_dirs(changed_files))
         if not content_dirs:
-            print("[publish] No relevant changed files; nothing to publish.")
+            print("No relevant changed files; nothing to publish.")
             return
     else:
         content_dirs = list(iter_all_content_dirs())
+
+    fence("Publishing Content")
+    print(f"Items to publish: {len(content_dirs)}")
+    print()
 
     # Publish each content folder
     for d in content_dirs:
@@ -730,10 +736,10 @@ def main():
             obj = make_zaphod_obj(d)
             
             if args.dry_run:
-                print(f"[publish] (dry-run) Would publish {d.name} as {type(obj).__name__}")
+                print(f"{d.name} ({type(obj).__name__}, dry-run)")
                 continue
             
-            print(f"[publish] Processing {d.name} as {type(obj).__name__}")
+            print(f"{d.name} ({type(obj).__name__})")
 
             # For Pages and Assignments: process placeholders and local assets
             if isinstance(obj, (ZaphodPage, ZaphodAssignment)):
@@ -754,21 +760,23 @@ def main():
 
             # Publish to Canvas
             obj.publish(course, overwrite=True)
-            print(f"[{SUCCESS} publish] {d.name}")
-            
+            print(f"{SUCCESS} {d.name}")
+
         except Exception as e:
-            print(f"[publish:err] {d.name}: {type(e).__name__}: {e}")
+            print(f"❌ {d.name}: {type(e).__name__}: {e}")
             import traceback
             traceback.print_exc()
-        
-        print()
+
+        print()  # Blank line after each item
 
     # Save cache (skip in dry-run mode)
     if not args.dry_run:
         save_upload_cache(cache)
-        print("[publish] Done.")
+        fence("Complete")
+        print(f"{SUCCESS} Done.")
     else:
-        print("[publish] Dry run complete - no changes made.")
+        fence("Complete")
+        print("Dry run complete - no changes made.")
 
 
 if __name__ == "__main__":

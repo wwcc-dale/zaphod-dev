@@ -78,6 +78,7 @@ from zaphod.errors import (
     ConfigurationError,
     CanvasAPIError,
 )
+from zaphod.icons import fence, SUCCESS, WARNING, INFO
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -290,7 +291,7 @@ def sync_page(course, folder: Path, meta: dict):
     indent = meta.get("indent", 0)
 
     if not title:
-        print(f"[modules:warn] {folder.name}: missing 'name' in meta.json for page")
+        print(f"⚠️ {folder.name}: missing 'name' in meta.json for page")
         return
     if not modules:
         return
@@ -309,7 +310,6 @@ def sync_page(course, folder: Path, meta: dict):
         try:
             module = ensure_module(course, mname)
             if module_has_item(module, "Page", page_url=page_url):
-                print(f"[modules] {folder.name}: already in module '{mname}' (Page)")
                 continue
 
             module.create_module_item(
@@ -320,7 +320,7 @@ def sync_page(course, folder: Path, meta: dict):
                     "indent": indent,
                 }
             )
-            print(f"[modules] {folder.name}: added to module '{mname}' (Page)")
+            print(f"✅ {folder.name} → module '{mname}'")
         except Exception as e:
             raise CanvasAPIError(
                 message=f"Failed to add page to module '{mname}'",
@@ -345,21 +345,20 @@ def sync_assignment(course, folder: Path, meta: dict):
     indent = meta.get("indent", 0)
 
     if not name:
-        print(f"[modules:warn] {folder.name}: missing 'name' in meta.json for assignment")
+        print(f"⚠️ {folder.name}: missing 'name' in meta.json for assignment")
         return
     if not modules:
         return
 
     assignment = find_assignment(course, name)
     if not assignment:
-        print(f"[modules:warn] {folder.name}: assignment name '{name}' not found in Canvas")
+        print(f"⚠️ {folder.name}: assignment name '{name}' not found in Canvas")
         return
 
     content_id = assignment.id
     for mname in modules:
         module = ensure_module(course, mname)
         if module_has_item(module, "Assignment", content_id=content_id):
-            print(f"[modules] {folder.name}: already in module '{mname}' (Assignment)")
             continue
 
         module.create_module_item(
@@ -370,7 +369,7 @@ def sync_assignment(course, folder: Path, meta: dict):
                 "indent": indent,
             }
         )
-        print(f"[modules] {folder.name}: added to module '{mname}' (Assignment)")
+        print(f"✅ {folder.name} → module '{mname}')")
 
 
 def sync_file_item(course, folder: Path, meta: dict):
@@ -380,21 +379,20 @@ def sync_file_item(course, folder: Path, meta: dict):
     title = meta.get("title", filename)
 
     if not filename:
-        print(f"[modules:warn] {folder.name}: missing 'filename' in meta.json for file")
+        print(f"⚠️ {folder.name}: missing 'filename' in meta.json for file")
         return
     if not modules:
         return
 
     file_obj = find_file(course, filename)
     if not file_obj:
-        print(f"[modules:warn] {folder.name}: file '{filename}' not found in Canvas")
+        print(f"⚠️ {folder.name}: file '{filename}' not found in Canvas")
         return
 
     content_id = file_obj.id
     for mname in modules:
         module = ensure_module(course, mname)
         if module_has_item(module, "File", content_id=content_id):
-            print(f"[modules] {folder.name}: already in module '{mname}' (File)")
             continue
 
         module.create_module_item(
@@ -405,7 +403,7 @@ def sync_file_item(course, folder: Path, meta: dict):
                 "indent": indent,
             }
         )
-        print(f"[modules] {folder.name}: added to module '{mname}' (File)")
+        print(f"✅ {folder.name} → module '{mname}')")
 
 
 def sync_link(course, folder: Path, meta: dict):
@@ -416,7 +414,7 @@ def sync_link(course, folder: Path, meta: dict):
     new_tab = bool(meta.get("new_tab", False))
 
     if not external_url or not name:
-        print(f"[modules:warn] {folder.name}: missing 'external_url' or 'name' in meta.json for link")
+        print(f"⚠️ {folder.name}: missing 'external_url' or 'name' in meta.json for link")
         return
     if not modules:
         return
@@ -424,7 +422,6 @@ def sync_link(course, folder: Path, meta: dict):
     for mname in modules:
         module = ensure_module(course, mname)
         if module_has_item(module, "ExternalUrl", external_url=external_url):
-            print(f"[modules] {folder.name}: already in module '{mname}' (ExternalUrl)")
             continue
 
         module.create_module_item(
@@ -436,7 +433,7 @@ def sync_link(course, folder: Path, meta: dict):
                 "indent": indent,
             }
         )
-        print(f"[modules] {folder.name}: added to module '{mname}' (ExternalUrl)")
+        print(f"✅ {folder.name} → module '{mname}')")
 
 
 def sync_quiz(course, folder: Path, meta: dict):
@@ -446,14 +443,14 @@ def sync_quiz(course, folder: Path, meta: dict):
     indent = meta.get("indent", 0)
 
     if not name:
-        print(f"[modules:warn] {folder.name}: missing 'name' in meta.json for quiz")
+        print(f"⚠️ {folder.name}: missing 'name' in meta.json for quiz")
         return
     if not modules:
         return
 
     quiz = find_quiz(course, name)
     if not quiz:
-        print(f"[modules:warn] {folder.name}: quiz '{name}' not found in Canvas")
+        print(f"⚠️ {folder.name}: quiz '{name}' not found in Canvas")
         print(f"[modules:hint] Run sync_quizzes.py first to create the quiz")
         return
 
@@ -461,7 +458,6 @@ def sync_quiz(course, folder: Path, meta: dict):
     for mname in modules:
         module = ensure_module(course, mname)
         if module_has_item(module, "Quiz", content_id=content_id):
-            print(f"[modules] {folder.name}: already in module '{mname}' (Quiz)")
             continue
 
         module.create_module_item(
@@ -472,7 +468,7 @@ def sync_quiz(course, folder: Path, meta: dict):
                 "indent": indent,
             }
         )
-        print(f"[modules] {folder.name}: added to module '{mname}' (Quiz)")
+        print(f"✅ {folder.name} → module '{mname}')")
 
 
 # ---------- Module order helpers ----------
@@ -541,7 +537,7 @@ def infer_module_order_from_directories() -> list[str]:
     # Extract just the module names
     order = [name for _, name, _ in module_folders]
     
-    print(f"[modules] Inferred module order from directories: {order}")
+    print(f"ℹ️ Inferred module order: {order}")
     return order
 
 
@@ -568,7 +564,7 @@ def load_module_order() -> list[str]:
             mods = []
         order = [str(m).strip() for m in mods if str(m).strip()]
         if order:
-            print(f"[modules] Desired module order from YAML: {order}")
+            print(f"Desired module order from YAML: {order}")
             return order
     
     # 2. Fallback: infer from directory structure
@@ -589,7 +585,7 @@ def apply_module_order(course, desired_order: list[str]):
     for name in desired_order:
         if name in modules_by_name:
             continue
-        print(f"[modules] Creating missing module '{name}' from module_order.yaml")
+        print(f"Creating missing module '{name}' from module_order.yaml")
         new_mod = course.create_module({"name": name})
         modules_by_name[name] = new_mod
         modules.append(new_mod)
@@ -609,7 +605,7 @@ def apply_module_order(course, desired_order: list[str]):
     for idx, mod in enumerate(ordered, start=1):
         if getattr(mod, "position", None) == idx:
             continue
-        print(f"[modules] Setting module '{mod.name}' to position {idx}")
+        print(f"Setting module '{mod.name}' to position {idx}")
         mod.edit(module={"position": idx})
 
 
@@ -679,8 +675,9 @@ def reorder_module_items(course, content_dirs: list[Path]):
         if current_managed_titles == desired_titles:
             # Already in correct order
             continue
-        
-        print(f"[modules] Reordering items in module '{mname}'")
+
+        print()
+        print(f"🔄 Reordering: {mname}")
         
         # Reorder items: move each item to position 1 in reverse desired order
         # This pushes them to the top in the correct sequence
@@ -690,7 +687,7 @@ def reorder_module_items(course, content_dirs: list[Path]):
                 try:
                     item.edit(module_item={"position": 1})
                 except Exception as e:
-                    print(f"[modules:warn] Failed to reorder '{title}' in '{mname}': {e}")
+                    print(f"⚠️ Failed to reorder '{title}' in '{mname}': {e}")
 
 
 # ---------- Main ----------
@@ -707,11 +704,11 @@ def main():
     if not content_dir.exists():
         raise SystemExit(f"No content directory found. Create content/ or pages/ in {COURSE_ROOT}")
 
-    print(f"[modules] Using content directory: {content_dir.name}/")
+    fence("Syncing Modules")
+    print(f"Course: {course.name} (ID {course_id})")
+    print(f"Content directory: {content_dir.name}/")
 
     desired_module_order = load_module_order()
-
-    print(f"[modules] Syncing modules in course {course.name} (ID {course_id})")
 
     changed_files = get_changed_files()
 
@@ -719,7 +716,7 @@ def main():
         # Incremental mode
         content_dirs = list(iter_changed_content_dirs(changed_files))
         if not content_dirs:
-            print("[modules] No relevant changed files; nothing to sync.")
+            print("No relevant changed files; nothing to sync.")
     else:
         # Full mode
         content_dirs = list(iter_all_content_dirs())
@@ -729,7 +726,7 @@ def main():
             try:
                 meta = load_meta(folder)
             except FileNotFoundError as e:
-                print(f"[modules:warn] {folder.name}: {e}")
+                print(f"⚠️ {folder.name}: {e}")
                 continue
 
             t = str(meta.get("type", "")).lower()
@@ -744,7 +741,7 @@ def main():
             elif t == "quiz":
                 sync_quiz(course, folder, meta)
             else:
-                print(f"[modules:warn] {folder.name}: unsupported type '{t}' in meta.json")
+                print(f"⚠️ {folder.name}: unsupported type '{t}' in meta.json")
         
         # Reorder items within modules based on folder sort keys
         # Use all content dirs for full reorder context, not just changed ones
@@ -753,10 +750,12 @@ def main():
 
     # Apply desired module order if provided
     if desired_module_order:
-        print("[modules] Applying module order from module_order.yaml")
+        print()
+        print("ℹ️ Applying module order from module_order.yaml")
         apply_module_order(course, desired_module_order)
 
-    print("[modules] Done.")
+    fence("Complete")
+    print("✅ Done.")
 
 
 if __name__ == "__main__":
