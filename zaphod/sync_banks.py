@@ -12,9 +12,9 @@ the QTI Content Migration API.
 Bank files live in quiz-banks/ and contain questions in a simple text format:
 
     quiz-banks/
-    [?]Å“[?]â‚¬[?]â‚¬ chapter1.bank.md
-    [?]Å“[?]â‚¬[?]â‚¬ chapter2.bank.md
-    [?]â€[?]â‚¬[?]â‚¬ final-exam-pool.bank.md
+    [?]Ã…â€œ[?]Ã¢â€šÂ¬[?]Ã¢â€šÂ¬ chapter1.bank.md
+    [?]Ã…â€œ[?]Ã¢â€šÂ¬[?]Ã¢â€šÂ¬ chapter2.bank.md
+    [?]Ã¢â‚¬Â[?]Ã¢â€šÂ¬[?]Ã¢â€šÂ¬ final-exam-pool.bank.md
 
 File format (*.bank.md):
     ---
@@ -82,6 +82,8 @@ import requests
 import yaml
 
 from zaphod.config_utils import get_course_id
+from zaphod.canvas_client import get_canvas_credentials
+from zaphod.security_utils import get_rate_limiter, mask_sensitive, is_safe_url
 
 
 # ============================================================================
@@ -192,96 +194,6 @@ class BankData:
     bank_name: str
     questions: List[ParsedQuestion]
     meta: Dict[str, Any]
-
-
-# ============================================================================
-# Canvas Client Setup
-# ============================================================================
-
-def load_canvas_credentials() -> Tuple[str, str]:
-    """
-    Load Canvas API credentials safely.
-    
-    SECURITY: Uses safe parsing instead of exec() to prevent code injection.
-    
-    Returns:
-        Tuple of (api_url, api_key)
-    """
-    # Try environment variables first
-    env_key = os.environ.get("CANVAS_API_KEY")
-    env_url = os.environ.get("CANVAS_API_URL")
-    if env_key and env_url:
-        return env_url.rstrip("/"), env_key
-    
-    # Fall back to credential file
-    cred_path = os.environ.get("CANVAS_CREDENTIAL_FILE")
-    if not cred_path:
-        raise SystemExit(
-            "Canvas credentials not found. Set CANVAS_API_KEY and CANVAS_API_URL "
-            "environment variables, or set CANVAS_CREDENTIAL_FILE."
-        )
-
-    cred_file = Path(cred_path)
-    if not cred_file.is_file():
-        raise SystemExit(f"CANVAS_CREDENTIAL_FILE does not exist: {cred_file}")
-
-    # SECURITY: Parse credentials safely without exec()
-    api_key, api_url = _parse_credentials_safe(cred_file)
-    
-    if not api_key or not api_url:
-        raise SystemExit(
-            f"Credentials file must define API_KEY and API_URL: {cred_file}"
-        )
-    
-    # Check file permissions
-    _warn_insecure_permissions(cred_file)
-
-    return api_url.rstrip("/"), api_key
-
-
-def _parse_credentials_safe(cred_file: Path) -> Tuple[Optional[str], Optional[str]]:
-    """Parse credentials file safely without exec()."""
-    content = cred_file.read_text(encoding="utf-8")
-    
-    api_key = None
-    api_url = None
-    
-    # Match API_KEY = "value" or API_KEY = 'value' or API_KEY = value
-    key_patterns = [
-        r'API_KEY\s*=\s*["\']([^"\']+)["\']',
-        r'API_KEY\s*=\s*(\S+)',
-    ]
-    url_patterns = [
-        r'API_URL\s*=\s*["\']([^"\']+)["\']',
-        r'API_URL\s*=\s*(\S+)',
-    ]
-    
-    for pattern in key_patterns:
-        match = re.search(pattern, content)
-        if match:
-            api_key = match.group(1).strip().strip('"\'')
-            break
-    
-    for pattern in url_patterns:
-        match = re.search(pattern, content)
-        if match:
-            api_url = match.group(1).strip().strip('"\'')
-            break
-    
-    return api_key, api_url
-
-
-def _warn_insecure_permissions(cred_file: Path):
-    """Warn if credential file has insecure permissions."""
-    import stat
-    try:
-        mode = os.stat(cred_file).st_mode
-        if mode & (stat.S_IRWXG | stat.S_IRWXO):
-            print(f"[bank:SECURITY] Credentials file has insecure permissions: {cred_file}")
-            print(f"[bank:SECURITY] Fix with: chmod 600 {cred_file}")
-    except OSError:
-        pass
-
 
 
 # ============================================================================
@@ -831,7 +743,9 @@ def verify_bank_exists(course_id: int, bank_name: str, api_url: str, api_key: st
     headers = {"Authorization": f"Bearer {api_key}"}
     
     try:
+        get_rate_limiter().wait_if_needed()  # SECURITY: Rate limiting
         resp = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        get_rate_limiter().check_response_headers(dict(resp.headers))
         if resp.status_code == 200:
             banks = resp.json()
             for bank in banks:
@@ -874,7 +788,9 @@ def upload_bank_to_canvas(
     
     print(f"[bank] Initiating content migration...")
     try:
+        get_rate_limiter().wait_if_needed()  # SECURITY: Rate limiting
         resp = requests.post(migration_url, headers=headers, data=init_data, timeout=REQUEST_TIMEOUT)
+        get_rate_limiter().check_response_headers(dict(resp.headers))
     except requests.exceptions.Timeout:
         print(f"[bank:error] Timeout initiating migration")
         return None
@@ -894,11 +810,20 @@ def upload_bank_to_canvas(
     
     upload_url = pre_attachment.get("upload_url")
     upload_params = pre_attachment.get("upload_params", {})
-    
+
+    # SECURITY: Validate upload URL to prevent SSRF attacks
+    if not upload_url:
+        print(f"[bank:error] No upload_url in response")
+        return None
+    if not is_safe_url(upload_url):
+        print(f"[bank:error] SECURITY: Blocked unsafe upload URL")
+        return None
+
     print(f"[bank] Uploading QTI package...")
     files = {"file": (f"{bank.bank_name}.zip", package_bytes, "application/zip")}
     
     try:
+        get_rate_limiter().wait_if_needed()  # SECURITY: Rate limiting
         upload_resp = requests.post(upload_url, data=upload_params, files=files, timeout=UPLOAD_TIMEOUT)
     except requests.exceptions.Timeout:
         print(f"[bank:error] Timeout uploading QTI package")
@@ -911,10 +836,15 @@ def upload_bank_to_canvas(
     if upload_resp.status_code in (301, 302, 303):
         confirm_url = upload_resp.headers.get("Location")
         if confirm_url:
-            try:
-                requests.get(confirm_url, headers=headers, timeout=REQUEST_TIMEOUT)
-            except requests.exceptions.Timeout:
-                pass  # Not critical
+            # SECURITY: Validate redirect URL to prevent SSRF attacks
+            if not is_safe_url(confirm_url):
+                print(f"[bank:warn] SECURITY: Blocked unsafe redirect URL, skipping confirmation")
+            else:
+                try:
+                    get_rate_limiter().wait_if_needed()  # SECURITY: Rate limiting
+                    requests.get(confirm_url, headers=headers, timeout=REQUEST_TIMEOUT)
+                except requests.exceptions.Timeout:
+                    pass  # Not critical
     
     print(f"[bank]   Upload complete")
     
@@ -922,13 +852,19 @@ def upload_bank_to_canvas(
     progress_url = migration_data.get("progress_url")
     migration_failed = False
     timed_out = False
-    
+
+    # SECURITY: Validate progress URL to prevent SSRF attacks
+    if progress_url and not is_safe_url(progress_url):
+        print(f"[bank:error] SECURITY: Blocked unsafe progress URL")
+        return None
+
     if progress_url:
         print(f"[bank] Waiting for migration...")
         for attempt in range(30):
             time.sleep(2)
             
             try:
+                get_rate_limiter().wait_if_needed()  # SECURITY: Rate limiting
                 progress_resp = requests.get(progress_url, headers=headers, timeout=MIGRATION_TIMEOUT)
             except requests.exceptions.Timeout:
                 continue
@@ -942,7 +878,7 @@ def upload_bank_to_canvas(
             print(f"[bank]   Progress: {completion}% ({workflow_state})")
             
             if workflow_state == "completed":
-                print(f"[bank] ✔ Bank '{bank.bank_name}' imported successfully")
+                print(f"[bank] âœ” Bank '{bank.bank_name}' imported successfully")
                 return migration_id
             elif workflow_state == "failed":
                 migration_failed = True
@@ -960,7 +896,7 @@ def upload_bank_to_canvas(
         
         bank_id = verify_bank_exists(course_id, bank.bank_name, api_url, api_key)
         if bank_id:
-            print(f"[bank] ✔ Bank '{bank.bank_name}' exists (id={bank_id}) - import succeeded")
+            print(f"[bank] âœ” Bank '{bank.bank_name}' exists (id={bank_id}) - import succeeded")
             return migration_id
         else:
             if timed_out:
@@ -1073,7 +1009,7 @@ def main():
         raise SystemExit("COURSE_ID is not set")
     
     course_id_int = int(course_id)
-    api_url, api_key = load_canvas_credentials()
+    api_url, api_key = get_canvas_credentials()  # From canvas_client
     
     # Load bank cache for incremental sync
     bank_cache = load_bank_cache()

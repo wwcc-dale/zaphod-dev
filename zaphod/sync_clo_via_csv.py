@@ -29,6 +29,7 @@ from typing import Dict, Any, List
 
 import yaml
 from zaphod.config_utils import get_course_id
+from zaphod.canvas_client import make_canvas_api_obj
 from canvasapi import Canvas  # [web:49][web:92]
 
 
@@ -44,64 +45,6 @@ COURSE_OUTCOMES_CSV = COURSE_OUTCOMES_DIR / "outcomes_import.csv"
 
 
 # ---------- helpers ----------
-
-
-def load_canvas() -> Canvas:
-    """
-    Load Canvas API client safely.
-    
-    SECURITY: Uses safe parsing instead of exec() to prevent code injection.
-    """
-    import re
-    import stat
-    
-    # Try environment variables first
-    env_key = os.environ.get("CANVAS_API_KEY")
-    env_url = os.environ.get("CANVAS_API_URL")
-    if env_key and env_url:
-        return Canvas(env_url, env_key)
-    
-    cred_path = os.environ.get("CANVAS_CREDENTIAL_FILE")
-    if not cred_path:
-        raise SystemExit(
-            "Canvas credentials not found. Set CANVAS_API_KEY and CANVAS_API_URL "
-            "environment variables, or set CANVAS_CREDENTIAL_FILE."
-        )
-
-    cred_file = Path(cred_path)
-    if not cred_file.is_file():
-        raise SystemExit(f"CANVAS_CREDENTIAL_FILE does not exist: {cred_file}")
-
-    # SECURITY: Parse credentials safely without exec()
-    content = cred_file.read_text(encoding="utf-8")
-    api_key = None
-    api_url = None
-    
-    for pattern in [r'API_KEY\s*=\s*["\']([^"\']+)["\']', r'API_KEY\s*=\s*(\S+)']:
-        match = re.search(pattern, content)
-        if match:
-            api_key = match.group(1).strip().strip('"\'')
-            break
-    
-    for pattern in [r'API_URL\s*=\s*["\']([^"\']+)["\']', r'API_URL\s*=\s*(\S+)']:
-        match = re.search(pattern, content)
-        if match:
-            api_url = match.group(1).strip().strip('"\'')
-            break
-    
-    if not api_key or not api_url:
-        raise SystemExit(f"Credentials file must define API_KEY and API_URL: {cred_file}")
-    
-    # Check file permissions
-    try:
-        mode = os.stat(cred_file).st_mode
-        if mode & (stat.S_IRWXG | stat.S_IRWXO):
-            print(f"[clo:SECURITY] Credentials file has insecure permissions: {cred_file}")
-            print(f"[clo:SECURITY] Fix with: chmod 600 {cred_file}")
-    except OSError:
-        pass
-
-    return Canvas(api_url, api_key)  # [web:38]
 
 
 def load_course_outcomes_yaml() -> Dict[str, Any]:
@@ -262,7 +205,7 @@ def main():
 
     write_csv(rows)
 
-    canvas = load_canvas()
+    canvas = make_canvas_api_obj()  # From canvas_client
     import_csv_to_course(canvas, course_id_int)
 
 

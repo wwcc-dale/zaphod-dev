@@ -195,7 +195,14 @@ class ZaphodContext:
         return None
     
     def run_script(self, script_name: str, args: Optional[list] = None, env: Optional[dict] = None) -> subprocess.CompletedProcess:
-        """Run a Zaphod script with optional arguments"""
+        """
+        Run a Zaphod script with optional arguments.
+
+        SECURITY: This function is safe from command injection because:
+        - Uses subprocess.run() with list format (not shell=True)
+        - Script path is validated to exist in zaphod_root before execution
+        - Arguments are passed as list elements, not interpolated into command string
+        """
         if not self.zaphod_root:
             click.echo(f"{B_ERROR} Could not find Zaphod scripts directory", err=True)
             sys.exit(1)

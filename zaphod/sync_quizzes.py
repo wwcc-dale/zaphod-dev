@@ -11,17 +11,17 @@ Syncs quiz folders (*.quiz/) to Canvas as first-class content items.
 Quiz folders live alongside pages and assignments in the content directory:
 
     pages/                              # (or content/)
-    â”œâ”€â”€ 01-Intro.module/                # Module folder (NEW pattern)
-    â”‚   â”œâ”€â”€ 01-welcome.page/
-    â”‚   â”‚   â””â”€â”€ index.md
-    â”‚   â”œâ”€â”€ 02-homework.assignment/
-    â”‚   â”‚   â””â”€â”€ index.md
-    â”‚   â””â”€â”€ 03-pretest.quiz/            # Quiz as first-class citizen
-    â”‚       â””â”€â”€ index.md
-    â”‚
+    Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ 01-Intro.module/                # Module folder (NEW pattern)
+    Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ 01-welcome.page/
+    Ã¢â€â€š   Ã¢â€â€š   Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ index.md
+    Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ 02-homework.assignment/
+    Ã¢â€â€š   Ã¢â€â€š   Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ index.md
+    Ã¢â€â€š   Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ 03-pretest.quiz/            # Quiz as first-class citizen
+    Ã¢â€â€š       Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ index.md
+    Ã¢â€â€š
     quiz-banks/                         # Source pools (not deployed directly)
-    â”œâ”€â”€ chapter1.bank.md
-    â””â”€â”€ chapter2.bank.md
+    Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ chapter1.bank.md
+    Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ chapter2.bank.md
 
 Module folder patterns:
 - NEW: '05-Week 1.module' -> infers module "Week 1" (suffix, strips numeric prefix)
@@ -83,6 +83,8 @@ import yaml
 from canvasapi import Canvas
 
 from zaphod.config_utils import get_course_id
+from zaphod.canvas_client import get_canvas_credentials, make_canvas_api_obj
+from zaphod.security_utils import get_rate_limiter, mask_sensitive
 
 
 # ============================================================================
@@ -222,70 +224,6 @@ class QuizFolder:
     question_groups: List[QuestionGroup]
     inline_questions: List[ParsedQuestion]
     module: Optional[str] = None
-
-
-# ============================================================================
-# Canvas Client Setup
-# ============================================================================
-
-def load_canvas() -> Tuple[Canvas, str, str]:
-    """
-    Load Canvas API client safely.
-    
-    SECURITY: Uses safe parsing instead of exec() to prevent code injection.
-    
-    Returns:
-        (canvas, api_url, api_key) tuple
-    """
-    import stat
-    
-    # Try environment variables first
-    env_key = os.environ.get("CANVAS_API_KEY")
-    env_url = os.environ.get("CANVAS_API_URL")
-    if env_key and env_url:
-        return Canvas(env_url, env_key), env_url.rstrip("/"), env_key
-    
-    cred_path = os.environ.get("CANVAS_CREDENTIAL_FILE")
-    if not cred_path:
-        raise SystemExit(
-            "Canvas credentials not found. Set CANVAS_API_KEY and CANVAS_API_URL "
-            "environment variables, or set CANVAS_CREDENTIAL_FILE."
-        )
-
-    cred_file = Path(cred_path)
-    if not cred_file.is_file():
-        raise SystemExit(f"CANVAS_CREDENTIAL_FILE does not exist: {cred_file}")
-
-    # SECURITY: Parse credentials safely without exec()
-    content = cred_file.read_text(encoding="utf-8")
-    api_key = None
-    api_url = None
-    
-    for pattern in [r'API_KEY\s*=\s*["\']([^"\']+)["\']', r'API_KEY\s*=\s*(\S+)']:
-        match = re.search(pattern, content)
-        if match:
-            api_key = match.group(1).strip().strip('"\'')
-            break
-    
-    for pattern in [r'API_URL\s*=\s*["\']([^"\']+)["\']', r'API_URL\s*=\s*(\S+)']:
-        match = re.search(pattern, content)
-        if match:
-            api_url = match.group(1).strip().strip('"\'')
-            break
-    
-    if not api_key or not api_url:
-        raise SystemExit(f"Credentials file must define API_KEY and API_URL: {cred_file}")
-    
-    # Check file permissions
-    try:
-        mode = os.stat(cred_file).st_mode
-        if mode & (stat.S_IRWXG | stat.S_IRWXO):
-            print(f"[quiz:SECURITY] Credentials file has insecure permissions: {cred_file}")
-            print(f"[quiz:SECURITY] Fix with: chmod 600 {cred_file}")
-    except OSError:
-        pass
-
-    return Canvas(api_url, api_key), api_url.rstrip("/"), api_key
 
 
 # ============================================================================
@@ -712,7 +650,9 @@ def get_question_banks(course_id: int, api_url: str, api_key: str) -> Dict[str, 
     api_failed = False
     
     try:
+        get_rate_limiter().wait_if_needed()  # SECURITY: Rate limiting
         resp = requests.get(url, headers=headers, params={"per_page": 100}, timeout=REQUEST_TIMEOUT)
+        get_rate_limiter().check_response_headers(dict(resp.headers))
         
         if resp.status_code == 200:
             data = resp.json()
@@ -763,6 +703,7 @@ def delete_quiz_questions(quiz, api_url: str, api_key: str, course_id: int):
     # Delete question groups FIRST (before questions)
     groups_url = f"{api_url}/api/v1/courses/{course_id}/quizzes/{quiz.id}/groups"
     try:
+        get_rate_limiter().wait_if_needed()  # SECURITY: Rate limiting
         resp = requests.get(groups_url, headers=headers, timeout=REQUEST_TIMEOUT)
         if resp.status_code == 200:
             groups = resp.json()
@@ -772,6 +713,7 @@ def delete_quiz_questions(quiz, api_url: str, api_key: str, course_id: int):
                 g_id = g.get("id")
                 if g_id:
                     del_url = f"{groups_url}/{g_id}"
+                    get_rate_limiter().wait_if_needed()  # SECURITY: Rate limiting
                     del_resp = requests.delete(del_url, headers=headers, timeout=REQUEST_TIMEOUT)
                     if del_resp.status_code not in (200, 204):
                         print(f"[quiz:warn] Failed to delete group {g_id}: HTTP {del_resp.status_code}")
@@ -781,6 +723,7 @@ def delete_quiz_questions(quiz, api_url: str, api_key: str, course_id: int):
     # Then delete questions
     questions_url = f"{api_url}/api/v1/courses/{course_id}/quizzes/{quiz.id}/questions"
     try:
+        get_rate_limiter().wait_if_needed()  # SECURITY: Rate limiting
         resp = requests.get(questions_url, headers=headers, params={"per_page": 100}, timeout=REQUEST_TIMEOUT)
         if resp.status_code == 200:
             questions = resp.json()
@@ -790,6 +733,7 @@ def delete_quiz_questions(quiz, api_url: str, api_key: str, course_id: int):
                 q_id = q.get("id")
                 if q_id:
                     del_url = f"{questions_url}/{q_id}"
+                    get_rate_limiter().wait_if_needed()  # SECURITY: Rate limiting
                     requests.delete(del_url, headers=headers, timeout=REQUEST_TIMEOUT)
     except Exception as e:
         print(f"[quiz:warn] Error deleting questions: {e}")
@@ -967,6 +911,7 @@ def create_canvas_quiz(
                 }]
             }
             
+            get_rate_limiter().wait_if_needed()  # SECURITY: Rate limiting
             resp = requests.post(groups_url, headers=headers, json=group_payload, timeout=REQUEST_TIMEOUT)
             if resp.status_code in (200, 201):
                 print(f"[quiz:group] Added group: pick {group.pick} from '{group_name}' (bank_id={resolved_bank_id}) @ {group.points_per_question} pts each")
@@ -1063,7 +1008,8 @@ def main():
         raise SystemExit("COURSE_ID is not set")
     
     course_id_int = int(course_id)
-    canvas, api_url, api_key = load_canvas()
+    api_url, api_key = get_canvas_credentials()  # From canvas_client
+    canvas = Canvas(api_url, api_key)
     course = canvas.get_course(course_id_int)
     
     # Load quiz cache

@@ -22,6 +22,7 @@ setup(
         "python-frontmatter>=1.0.0",
         "Markdown>=3.4.0",
         "watchdog>=3.0.0",
+        "defusedxml>=0.7.1",
     ],
     extras_require={
         "dev": [

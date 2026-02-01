@@ -49,6 +49,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 import yaml
 from zaphod.config_utils import get_course_id
+from zaphod.canvas_client import make_canvas_api_obj, get_canvas_credentials
 from canvasapi import Canvas
 from canvasapi.course import Course
 from zaphod.errors import (
@@ -119,105 +120,7 @@ def get_content_dir() -> Path:
 
 
 # ---------- Canvas helpers ----------
-
-
-def _parse_credentials_safe(cred_file: Path) -> Tuple[str, str]:
-    """Parse credentials file safely without exec()."""
-    import re
-    content = cred_file.read_text(encoding="utf-8")
-    
-    api_key = None
-    api_url = None
-    
-    for pattern in [r'API_KEY\s*=\s*["\']([^"\']+)["\']', r'API_KEY\s*=\s*(\S+)']:
-        match = re.search(pattern, content)
-        if match:
-            api_key = match.group(1).strip().strip('"\'')
-            break
-    
-    for pattern in [r'API_URL\s*=\s*["\']([^"\']+)["\']', r'API_URL\s*=\s*(\S+)']:
-        match = re.search(pattern, content)
-        if match:
-            api_url = match.group(1).strip().strip('"\'')
-            break
-    
-    return api_key, api_url
-
-
-def _check_cred_permissions(cred_file: Path):
-    """Warn if credential file has insecure permissions."""
-    import stat
-    try:
-        mode = os.stat(cred_file).st_mode
-        if mode & (stat.S_IRWXG | stat.S_IRWXO):
-            print(f"[rubric:SECURITY] Credentials file has insecure permissions: {cred_file}")
-            print(f"[rubric:SECURITY] Fix with: chmod 600 {cred_file}")
-    except OSError:
-        pass
-
-
-def load_canvas() -> Canvas:
-    """
-    Load Canvas API client safely.
-    
-    SECURITY: Uses safe parsing instead of exec() to prevent code injection.
-    """
-    # Try environment variables first
-    env_key = os.environ.get("CANVAS_API_KEY")
-    env_url = os.environ.get("CANVAS_API_URL")
-    if env_key and env_url:
-        return Canvas(env_url, env_key)
-    
-    cred_path = os.environ.get("CANVAS_CREDENTIAL_FILE")
-    if not cred_path:
-        raise SystemExit(
-            "Canvas credentials not found. Set CANVAS_API_KEY and CANVAS_API_URL "
-            "environment variables, or set CANVAS_CREDENTIAL_FILE."
-        )
-
-    cred_file = Path(cred_path)
-    if not cred_file.is_file():
-        raise SystemExit(f"CANVAS_CREDENTIAL_FILE does not exist: {cred_file}")
-
-    # SECURITY: Parse credentials safely without exec()
-    api_key, api_url = _parse_credentials_safe(cred_file)
-    if not api_key or not api_url:
-        raise SystemExit(f"Credentials file must define API_KEY and API_URL: {cred_file}")
-    
-    _check_cred_permissions(cred_file)
-    return Canvas(api_url, api_key)
-
-
-def get_api_url_and_key() -> Tuple[str, str]:
-    """
-    Get API URL and key safely.
-    
-    SECURITY: Uses safe parsing instead of exec() to prevent code injection.
-    """
-    # Try environment variables first
-    env_key = os.environ.get("CANVAS_API_KEY")
-    env_url = os.environ.get("CANVAS_API_URL")
-    if env_key and env_url:
-        return env_url.rstrip("/"), env_key
-    
-    cred_path = os.environ.get("CANVAS_CREDENTIAL_FILE")
-    if not cred_path:
-        raise SystemExit(
-            "Canvas credentials not found. Set CANVAS_API_KEY and CANVAS_API_URL "
-            "environment variables, or set CANVAS_CREDENTIAL_FILE."
-        )
-
-    cred_file = Path(cred_path)
-    if not cred_file.is_file():
-        raise SystemExit(f"CANVAS_CREDENTIAL_FILE does not exist: {cred_file}")
-
-    # SECURITY: Parse credentials safely without exec()
-    api_key, api_url = _parse_credentials_safe(cred_file)
-    if not api_key or not api_url:
-        raise SystemExit(f"Credentials file must define API_KEY and API_URL: {cred_file}")
-    
-    _check_cred_permissions(cred_file)
-    return api_url.rstrip("/"), api_key
+# Note: Credential loading now uses centralized canvas_client.py
 
 
 # ---------- Local file helpers ----------
@@ -525,7 +428,7 @@ def create_rubric_via_api(
     # Rate limit check
     get_rate_limiter().wait_if_needed()
     
-    api_url, api_key = get_api_url_and_key()
+    api_url, api_key = get_canvas_credentials()  # From canvas_client
     url = f"{api_url}/api/v1/courses/{course_id}/rubrics"
     headers = {"Authorization": f"Bearer {api_key}"}
 
@@ -624,7 +527,7 @@ def main():
 
     print(f"[rubrics] Using content directory: {content_dir.name}/")
 
-    canvas = load_canvas()
+    canvas = make_canvas_api_obj()  # From canvas_client
     course = canvas.get_course(int(course_id))
 
     folders = iter_assignment_folders_with_rubrics()

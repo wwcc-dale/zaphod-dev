@@ -217,6 +217,7 @@ def run_pipeline(changed_files: list[Path]):
                 print(f"[watch] SKIP missing script: {script}")
                 continue
             fence(f"RUNNING: {script.name}")
+            # SECURITY: Safe from command injection - uses list format, validated paths
             subprocess.run(
                 [str(python_exe), str(script)],
                 cwd=str(COURSE_ROOT),
@@ -238,6 +239,7 @@ def run_pipeline(changed_files: list[Path]):
                 args.append("--apply")
 
             fence(f"RUNNING: {prune_script.name}")
+            # SECURITY: Safe from command injection - uses list format, validated paths
             subprocess.run(
                 args,
                 cwd=str(COURSE_ROOT),
@@ -250,6 +252,7 @@ def run_pipeline(changed_files: list[Path]):
         quiz_prune_script = SCRIPT_DIR / "prune_quizzes.py"
         if quiz_prune_script.is_file():
             fence(f"RUNNING: {quiz_prune_script.name}")
+            # SECURITY: Safe from command injection - uses list format, validated paths
             subprocess.run(
                 [str(python_exe), str(quiz_prune_script)],
                 cwd=str(COURSE_ROOT),
@@ -263,6 +266,7 @@ def run_pipeline(changed_files: list[Path]):
         manifest_script = SCRIPT_DIR / "build_media_manifest.py"
         if manifest_script.is_file():
             fence(f"RUNNING: {manifest_script.name}")
+            # SECURITY: Safe from command injection - uses list format, validated paths
             subprocess.run(
                 [str(python_exe), str(manifest_script)],
                 cwd=str(COURSE_ROOT),

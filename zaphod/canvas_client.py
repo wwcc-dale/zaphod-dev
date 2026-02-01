@@ -4,58 +4,23 @@ canvas_client.py - Shared Canvas API client helper
 
 Replaces markdown2canvas's make_canvas_api_obj() with a Zaphod-native implementation.
 
-SECURITY: Uses safe credential parsing instead of exec().
+SECURITY: Uses centralized credential loading from security_utils.py
 """
 
 import os
-import re
-import stat
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Tuple
+from typing import TYPE_CHECKING, Tuple
 
 # Lazy import - only load canvasapi when actually needed
 if TYPE_CHECKING:
     from canvasapi import Canvas
 
-
-def _parse_credentials_safe(cred_file: Path) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Parse credentials file safely without exec().
-    
-    SECURITY: This replaces the dangerous exec() pattern that could
-    execute arbitrary code if the credentials file was compromised.
-    """
-    content = cred_file.read_text(encoding="utf-8")
-    
-    api_key = None
-    api_url = None
-    
-    # Match API_KEY = "value" or API_KEY = 'value' or API_KEY = value
-    for pattern in [r'API_KEY\s*=\s*["\']([^"\']+)["\']', r'API_KEY\s*=\s*(\S+)']:
-        match = re.search(pattern, content)
-        if match:
-            api_key = match.group(1).strip().strip('"\'')
-            break
-    
-    for pattern in [r'API_URL\s*=\s*["\']([^"\']+)["\']', r'API_URL\s*=\s*(\S+)']:
-        match = re.search(pattern, content)
-        if match:
-            api_url = match.group(1).strip().strip('"\'')
-            break
-    
-    return api_key, api_url
-
-
-def _check_file_permissions(cred_file: Path) -> None:
-    """Warn if credential file has insecure permissions."""
-    try:
-        mode = os.stat(cred_file).st_mode
-        if mode & (stat.S_IRWXG | stat.S_IRWXO):
-            print(f"[canvas:SECURITY] Credentials file has insecure permissions: {cred_file}")
-            print(f"[canvas:SECURITY] Other users may be able to read your API key.")
-            print(f"[canvas:SECURITY] Fix with: chmod 600 {cred_file}")
-    except OSError:
-        pass  # Can't check permissions (e.g., Windows)
+# Import security utilities for credential loading
+from zaphod.security_utils import (
+    load_canvas_credentials_safe,
+    CredentialError,
+    mask_sensitive,
+)
 
 
 def get_canvas_credentials() -> Tuple[str, str]:
@@ -72,22 +37,18 @@ def get_canvas_credentials() -> Tuple[str, str]:
     Raises:
         SystemExit: If credentials not found or missing required values
     """
-    # Priority 1: Environment variables
-    env_key = os.environ.get("CANVAS_API_KEY")
-    env_url = os.environ.get("CANVAS_API_URL")
-    if env_key and env_url:
-        return env_url.rstrip("/"), env_key
-    
-    # Priority 2: Credential file
-    cred_path = os.environ.get("CANVAS_CREDENTIAL_FILE")
-    if not cred_path:
-        # Default location
-        cred_path = str(Path.home() / ".canvas" / "credentials.txt")
-    
-    cred_file = Path(cred_path)
-    if not cred_file.is_file():
+    try:
+        # Use centralized secure credential loading
+        cred_path = os.environ.get("CANVAS_CREDENTIAL_FILE")
+        if not cred_path:
+            cred_path = str(Path.home() / ".canvas" / "credentials.txt")
+        
+        api_url, api_key = load_canvas_credentials_safe(cred_path)
+        return api_url, api_key
+        
+    except CredentialError as e:
         raise SystemExit(
-            f"Canvas credentials file not found: {cred_file}\n\n"
+            f"Canvas credentials error: {e}\n\n"
             f"Option 1 - Environment variables:\n"
             f"  export CANVAS_API_KEY='your_token'\n"
             f"  export CANVAS_API_URL='https://canvas.yourinstitution.edu'\n\n"
@@ -99,22 +60,6 @@ def get_canvas_credentials() -> Tuple[str, str]:
             f'  API_KEY = "your_canvas_token"\n'
             f'  API_URL = "https://canvas.yourinstitution.edu"'
         )
-    
-    # SECURITY: Parse credentials safely without exec()
-    api_key, api_url = _parse_credentials_safe(cred_file)
-    
-    if not api_key or not api_url:
-        raise SystemExit(
-            f"Credentials file must define API_KEY and API_URL: {cred_file}"
-        )
-    
-    # Check file permissions
-    _check_file_permissions(cred_file)
-    
-    # Normalize URL (remove trailing slash)
-    api_url = api_url.rstrip("/")
-    
-    return api_url, api_key
 
 
 def make_canvas_api_obj() -> "Canvas":

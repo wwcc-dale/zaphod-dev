@@ -17,6 +17,9 @@ Markdown>=3.4.0
 # File watching (for sync --watch)
 watchdog>=3.0.0
 
+# Security - XML processing hardening
+defusedxml>=0.7.1
+
 # -------------------------------------------
 # Development / Testing Dependencies
 # -------------------------------------------

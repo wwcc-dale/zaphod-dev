@@ -24,10 +24,10 @@ Module ordering (priority):
 
   2. Inferred: from directory structure if no YAML:
         pages/
-        â”œâ”€â”€ 01-Week 1.module/     -> position 1, name "Week 1"
-        â”œâ”€â”€ 02-Week 2.module/     -> position 2, name "Week 2"
-        â”œâ”€â”€ 10-Final.module/      -> position 3, name "Final"
-        â””â”€â”€ Appendix.module/      -> position 4, name "Appendix" (no prefix)
+        Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ 01-Week 1.module/     -> position 1, name "Week 1"
+        Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ 02-Week 2.module/     -> position 2, name "Week 2"
+        Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ 10-Final.module/      -> position 3, name "Final"
+        Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ Appendix.module/      -> position 4, name "Appendix" (no prefix)
 
      Module folder patterns:
      - NEW: '05-Donkey Training.module' -> "Donkey Training" (sorted by 05)
@@ -70,6 +70,7 @@ import json
 import os
 import re
 from zaphod.config_utils import get_course_id
+from zaphod.canvas_client import make_canvas_api_obj
 from canvasapi import Canvas
 import yaml
 from zaphod.errors import (
@@ -200,66 +201,6 @@ def iter_changed_content_dirs(changed_files: list[Path]):
 
 
 # ---------- Canvas helpers ----------
-
-def get_canvas() -> Canvas:
-    """
-    Load Canvas API client safely.
-    
-    SECURITY: Uses safe parsing instead of exec() to prevent code injection.
-    """
-    import re
-    import stat
-    
-    # Try environment variables first
-    env_key = os.environ.get("CANVAS_API_KEY")
-    env_url = os.environ.get("CANVAS_API_URL")
-    if env_key and env_url:
-        return Canvas(env_url, env_key)
-    
-    cred_path = os.environ.get("CANVAS_CREDENTIAL_FILE")
-    if not cred_path:
-        raise SystemExit(
-            "Canvas credentials not found. Set CANVAS_API_KEY and CANVAS_API_URL "
-            "environment variables, or set CANVAS_CREDENTIAL_FILE."
-        )
-
-    cred_file = Path(cred_path)
-    if not cred_file.is_file():
-        raise SystemExit(f"CANVAS_CREDENTIAL_FILE does not exist: {cred_file}")
-
-    # SECURITY: Parse credentials safely without exec()
-    content = cred_file.read_text(encoding="utf-8")
-    api_key = None
-    api_url = None
-    
-    for pattern in [r'API_KEY\s*=\s*["\']([^"\']+)["\']', r'API_KEY\s*=\s*(\S+)']:
-        match = re.search(pattern, content)
-        if match:
-            api_key = match.group(1).strip().strip('"\'')
-            break
-    
-    for pattern in [r'API_URL\s*=\s*["\']([^"\']+)["\']', r'API_URL\s*=\s*(\S+)']:
-        match = re.search(pattern, content)
-        if match:
-            api_url = match.group(1).strip().strip('"\'')
-            break
-    
-    if not api_key or not api_url:
-        raise SystemExit(
-            f"Credentials file must define API_KEY and API_URL: {cred_file}"
-        )
-    
-    # Check file permissions
-    try:
-        mode = os.stat(cred_file).st_mode
-        if mode & (stat.S_IRWXG | stat.S_IRWXO):
-            print(f"[modules:SECURITY] Credentials file has insecure permissions: {cred_file}")
-            print(f"[modules:SECURITY] Fix with: chmod 600 {cred_file}")
-    except OSError:
-        pass
-    
-    return Canvas(api_url, api_key)
-
 
 def load_meta(folder: Path) -> dict:
     meta_path = folder / "meta.json"
@@ -759,7 +700,7 @@ def main():
     if not course_id:
         raise SystemExit("COURSE_ID is not set")
 
-    canvas = get_canvas()
+    canvas = make_canvas_api_obj()  # From canvas_client
     course = canvas.get_course(int(course_id))
 
     content_dir = get_content_dir()

@@ -47,7 +47,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from xml.etree import ElementTree as ET
-from xml.dom import minidom
+from defusedxml import minidom  # SECURITY: Hardened against XXE attacks
+
+from zaphod.security_utils import is_safe_path
 
 import yaml
 import frontmatter
@@ -172,7 +174,13 @@ def generate_content_id(folder: Path) -> str:
 # ============================================================================
 
 def prettify_xml(elem: ET.Element) -> str:
-    """Return a pretty-printed XML string."""
+    """
+    Return a pretty-printed XML string.
+
+    SECURITY: Uses defusedxml.minidom instead of xml.dom.minidom to protect
+    against XXE (XML External Entity) attacks. While the XML being parsed is
+    internally generated (from ET.tostring), this provides defense-in-depth.
+    """
     rough_string = ET.tostring(elem, encoding='unicode')
     reparsed = minidom.parseString(rough_string)
     return reparsed.toprettyxml(indent="  ")
@@ -582,6 +590,13 @@ def collect_assets() -> List[Path]:
             # Check for excluded patterns in filename
             if any(pattern in file_path.name for pattern in exclude_patterns):
                 continue
+
+            # SECURITY: Validate path is within assets directory
+            # Prevents path traversal via symlinks or other means
+            if not is_safe_path(ASSETS_DIR, file_path):
+                print(f"[cartridge:warn] Skipping file outside assets dir: {file_path.name}")
+                continue
+
             assets.append(file_path)
     
     return assets

@@ -32,6 +32,7 @@ import yaml
 from canvasapi import Canvas
 
 from zaphod.config_utils import get_course_id
+from zaphod.canvas_client import make_canvas_api_obj
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SHARED_ROOT = SCRIPT_DIR.parent
@@ -53,69 +54,6 @@ def _truthy_env(name: str, default: bool = False) -> bool:
     if v is None:
         return default
     return v.lower() in {"1", "true", "yes", "on"}
-
-
-def load_canvas() -> Canvas:
-    """
-    Load Canvas API client safely.
-    
-    SECURITY: Uses safe parsing instead of exec() to prevent code injection.
-    """
-    import re
-    import stat
-    
-    # Try environment variables first
-    env_key = os.environ.get("CANVAS_API_KEY")
-    env_url = os.environ.get("CANVAS_API_URL")
-    if env_key and env_url:
-        return Canvas(env_url, env_key)
-    
-    # Fall back to credential file
-    cred_path = os.environ.get("CANVAS_CREDENTIAL_FILE")
-    if not cred_path:
-        raise SystemExit(
-            "Canvas credentials not found. Set CANVAS_API_KEY and CANVAS_API_URL "
-            "environment variables, or set CANVAS_CREDENTIAL_FILE."
-        )
-
-    cred_file = Path(cred_path)
-    if not cred_file.is_file():
-        raise SystemExit(f"CANVAS_CREDENTIAL_FILE does not exist: {cred_file}")
-
-    # SECURITY: Parse credentials safely without exec()
-    content = cred_file.read_text(encoding="utf-8")
-    
-    api_key = None
-    api_url = None
-    
-    # Match API_KEY = "value" or API_KEY = 'value' or API_KEY = value
-    for pattern in [r'API_KEY\s*=\s*["\']([^"\']+)["\']', r'API_KEY\s*=\s*(\S+)']:
-        match = re.search(pattern, content)
-        if match:
-            api_key = match.group(1).strip().strip('"\'')
-            break
-    
-    for pattern in [r'API_URL\s*=\s*["\']([^"\']+)["\']', r'API_URL\s*=\s*(\S+)']:
-        match = re.search(pattern, content)
-        if match:
-            api_url = match.group(1).strip().strip('"\'')
-            break
-    
-    if not api_key or not api_url:
-        raise SystemExit(
-            f"Credentials file must define API_KEY and API_URL: {cred_file}"
-        )
-    
-    # Check file permissions
-    try:
-        mode = os.stat(cred_file).st_mode
-        if mode & (stat.S_IRWXG | stat.S_IRWXO):
-            print(f"[prune:SECURITY] Credentials file has insecure permissions: {cred_file}")
-            print(f"[prune:SECURITY] Fix with: chmod 600 {cred_file}")
-    except OSError:
-        pass
-
-    return Canvas(api_url, api_key)
 
 
 def get_local_quiz_names() -> Set[str]:
@@ -272,7 +210,7 @@ def main():
     # Default: apply deletions unless explicitly disabled.
     apply = _truthy_env("ZAPHOD_PRUNE_APPLY", default=True)
 
-    canvas = load_canvas()
+    canvas = make_canvas_api_obj()  # From canvas_client
     course = canvas.get_course(int(course_id))
 
     print(f"[prune:quiz] Pruning quiz content in course {course_id} (apply={apply})")
