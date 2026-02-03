@@ -96,6 +96,7 @@ COURSE_ROOT = Path.cwd()
 QUESTION_BANKS_DIR = COURSE_ROOT / "question-banks"
 METADATA_DIR = COURSE_ROOT / "_course_metadata"
 BANK_CACHE_FILE = METADATA_DIR / "bank_cache.json"
+BANK_MAPPINGS_FILE = QUESTION_BANKS_DIR / "bank-mappings.yaml"
 
 # QTI/CC namespaces
 QTI_NS = "http://www.imsglobal.org/xsd/ims_qtiasiv1p2"
@@ -151,7 +152,7 @@ def bank_needs_sync(file_path: Path, cache: Dict[str, Any], force: bool = False)
     return True
 
 
-def update_bank_cache(file_path: Path, bank_name: str, cache: Dict[str, Any], migration_id: int = None):
+def update_bank_cache(file_path: Path, bank_name: str, cache: Dict[str, Any], migration_id: int = None, bank_id: int = None):
     """Update the cache with bank info."""
     cache_key = str(file_path.relative_to(COURSE_ROOT))
     cache[cache_key] = {
@@ -159,6 +160,7 @@ def update_bank_cache(file_path: Path, bank_name: str, cache: Dict[str, Any], mi
         "bank_name": bank_name,
         "uploaded_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "migration_id": migration_id,
+        "bank_id": bank_id,
     }
 
 
@@ -166,6 +168,81 @@ def bank_already_uploaded(file_path: Path, cache: Dict[str, Any]) -> Dict[str, A
     """Check if bank was previously uploaded (for --force warnings)."""
     cache_key = str(file_path.relative_to(COURSE_ROOT))
     return cache.get(cache_key, {})
+
+
+# ============================================================================
+# Bank Mappings (filename → Canvas ID)
+# ============================================================================
+
+def load_bank_mappings() -> Dict[str, int]:
+    """
+    Load bank filename → Canvas ID mappings from YAML.
+
+    Returns dict: {"chapter1.bank": 12345, "chapter2.bank": 67890}
+    """
+    if not BANK_MAPPINGS_FILE.exists():
+        return {}
+
+    try:
+        data = yaml.safe_load(BANK_MAPPINGS_FILE.read_text(encoding='utf-8')) or {}
+        # Handle both simple format and nested format
+        if isinstance(data, dict):
+            if 'banks' in data:
+                # Nested format: extract just the IDs
+                return {k: v['id'] if isinstance(v, dict) else v
+                        for k, v in data['banks'].items()}
+            else:
+                # Simple format
+                return data
+    except Exception as e:
+        print(f"⚠️ Failed to load bank mappings: {e}")
+
+    return {}
+
+
+def save_bank_mappings(mappings: Dict[str, int]):
+    """
+    Save bank filename → Canvas ID mappings to YAML.
+
+    Format:
+        # Question Bank ID Mappings
+        chapter1.bank: 12345
+        chapter2.bank: 67890
+    """
+    try:
+        # Ensure directory exists
+        QUESTION_BANKS_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Sort by key for consistency
+        sorted_mappings = dict(sorted(mappings.items()))
+
+        # Write with header comment
+        with open(BANK_MAPPINGS_FILE, 'w', encoding='utf-8') as f:
+            f.write("# Question Bank ID Mappings\n")
+            f.write("# Auto-generated from Canvas after syncing banks\n")
+            f.write(f"# Last updated: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("# Format: bank_filename → Canvas bank ID\n\n")
+            yaml.dump(sorted_mappings, f, default_flow_style=False, sort_keys=False)
+
+        rel_path = BANK_MAPPINGS_FILE.relative_to(COURSE_ROOT)
+        print(f"ℹ️ Updated {rel_path}")
+
+    except Exception as e:
+        print(f"⚠️ Failed to save bank mappings: {e}")
+
+
+def update_bank_mapping(file_path: Path, bank_id: int, mappings: Dict[str, int]):
+    """
+    Add/update a single bank mapping.
+
+    Args:
+        file_path: Path to .bank.md file
+        bank_id: Canvas bank ID
+        mappings: Current mappings dict (will be modified)
+    """
+    # Use stem as key: "chapter1.bank.md" → "chapter1.bank"
+    key = file_path.stem
+    mappings[key] = bank_id
 
 
 # ============================================================================
@@ -1070,8 +1147,24 @@ def main():
         else:
             migration_id = upload_bank_to_canvas(course_id_int, bank, api_url, api_key)
             if migration_id:
-                # Update cache with new hash and migration info
-                update_bank_cache(path, bank.bank_name, bank_cache, migration_id)
+                # Try to get the Canvas bank ID after successful upload
+                bank_id = verify_bank_exists(course_id_int, bank.bank_name, api_url, api_key)
+
+                if bank_id:
+                    # Update cache with new hash, migration info, AND bank ID
+                    update_bank_cache(path, bank.bank_name, bank_cache, migration_id, bank_id)
+
+                    # Update bank mappings file
+                    bank_mappings = load_bank_mappings()
+                    update_bank_mapping(path, bank_id, bank_mappings)
+                    save_bank_mappings(bank_mappings)
+
+                    print(f"✅ Linked {path.stem} → Canvas bank ID {bank_id}")
+                else:
+                    # Fallback: save without bank_id
+                    update_bank_cache(path, bank.bank_name, bank_cache, migration_id)
+                    print(f"⚠️ Could not retrieve bank ID for {bank.bank_name}")
+
                 success_count += 1
 
         print()  # Blank line after each bank
