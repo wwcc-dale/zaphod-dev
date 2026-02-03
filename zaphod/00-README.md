@@ -77,9 +77,11 @@ See [05-QUICK-START.md](05-QUICK-START.md) for detailed setup instructions.
 ```
 my-course/
 ├── zaphod.yaml                 # Course config (course_id)
-├── pages/                      # All content lives here
+├── content/                    # All content lives here
 │   ├── 01-Getting Started.module/
 │   │   ├── 01-welcome.page/
+│   │   │   ├── my-image.jpg
+│   │   │   ├── my-movie.mp4
 │   │   │   └── index.md
 │   │   ├── 02-first-assignment.assignment/
 │   │   │   ├── index.md
@@ -91,11 +93,23 @@ my-course/
 ├── question-banks/
 │   ├── chapter1.bank.md
 │   └── chapter2.bank.md
+├── shared/
+│   ├── variables.yaml
+│   └── my-include.md
+├── templates/
+│   ├── footer.html
+│   ├── footer.md
+│   ├── header.html
+│   └── header.md
 ├── assets/
 │   ├── images/
 │   └── videos/
 ├── outcomes/
 │   └── outcomes.yaml
+├── rubrics/
+│   ├── rubric_rows/
+│   │   └── sahared-rubric-row.yaml
+│   └── shared-rubric.yaml
 └── modules/
     └── module_order.yaml       # Optional explicit ordering
 ```
@@ -192,7 +206,7 @@ Instructions for the quiz.
 Zaphod automatically organizes content into Canvas modules based on folder structure:
 
 ```
-pages/
+content/
 ├── 01-Introduction.module/     # → Module "Introduction" (position 1)
 │   ├── 01-welcome.page/        # → First item in module
 │   └── 02-overview.page/       # → Second item
