@@ -78,6 +78,15 @@ See [05-QUICK-START.md](05-QUICK-START.md) for detailed setup instructions.
 my-course/
 ├── zaphod.yaml                 # Course config (course_id)
 ├── content/                    # All content lives here
+├── templates/                  # Header/footer wrappers
+│   ├── default/
+│   │   ├── header.html
+│   │   ├── header.md
+│   │   ├── footer.md
+│   │   └── footer.html
+│   └── fancy/                  # Alternative template sets
+│       └── ...
+├── pages/                      # All content lives here
 │   ├── 01-Getting Started.module/
 │   │   ├── 01-welcome.page/
 │   │   │   ├── my-image.jpg
@@ -106,12 +115,13 @@ my-course/
 │   └── videos/
 ├── outcomes/
 │   └── outcomes.yaml
-├── rubrics/
-│   ├── rubric_rows/
-│   │   └── sahared-rubric-row.yaml
-│   └── shared-rubric.yaml
-└── modules/
-    └── module_order.yaml       # Optional explicit ordering
+├── modules/
+│   └── module_order.yaml       # Optional explicit ordering
+└── rubrics/
+    ├── my-shared-rubric.yaml
+    └── rows/
+        ├── my-rubric-row.yaml
+        └── another-rubric-row.yaml
 ```
 
 ---
@@ -201,6 +211,65 @@ Instructions for the quiz.
 
 ---
 
+## Extracting Canvas IDs
+
+Canvas question bank IDs and outcome IDs are not accessible via the API and must be extracted manually.
+
+### Question Bank IDs
+
+**Why needed:** Quizzes need `bank_id` in frontmatter to link to Canvas question banks.
+
+**Workflow:**
+
+1. **Sync banks to Canvas**
+   ```bash
+   python3 zaphod/sync_banks.py
+   ```
+
+2. **Save HTML from Canvas**
+   - Go to: Canvas > Quizzes > Manage Question Banks
+   - Save page source as `banks.html`
+
+3. **Extract IDs**
+   ```bash
+   python3 zaphod/utilities/bank_scrape.py banks.html
+   ```
+   - Generates `question-banks/bank-mappings.yaml`
+
+4. **Apply to quizzes**
+   ```bash
+   python3 zaphod/utilities/apply_bank_ids.py
+   ```
+   - Updates quiz frontmatter with `bank_id` fields
+
+5. **Sync quizzes**
+   ```bash
+   zaphod sync
+   ```
+
+### Outcome IDs
+
+**Why needed:** For linking assignments/quizzes to learning outcomes.
+
+**Workflow:**
+
+1. **Save HTML from Canvas**
+   - Go to: Canvas > Outcomes
+   - Save page source as `outcomes.html`
+
+2. **Extract IDs**
+   ```bash
+   python3 zaphod/utilities/outcome_scrape.py outcomes.html
+   ```
+   - Generates `outcomes/outcome-mappings.yaml`
+
+3. **Use in content**
+   - Reference outcome IDs in assignment/quiz frontmatter
+
+**Note:** Canvas does not expose bank/outcome IDs via API or exports. HTML scraping is the only reliable method for authenticated content.
+
+---
+
 ## Module Organization
 
 Zaphod automatically organizes content into Canvas modules based on folder structure:
@@ -218,6 +287,83 @@ content/
 - Numeric prefixes (01-, 02-) set the order
 - The prefix is stripped from the module name
 - Items within modules are also ordered by prefix
+
+---
+
+## Templates - Automatic Headers & Footers
+
+Apply consistent headers and footers to all pages automatically.
+
+### Template Sets
+
+Create reusable template sets in `templates/` directory:
+
+```
+templates/
+├── default/              # Applied to all pages by default
+│   ├── header.html
+│   ├── header.md
+│   ├── footer.md
+│   └── footer.html
+├── fancy/                # Alternative template set
+│   ├── header.html
+│   ├── header.md
+│   ├── footer.md
+│   └── footer.html
+└── minimal/              # Minimal styling
+    └── footer.md
+```
+
+### Application Order
+
+Templates wrap content in this order:
+1. `header.html`
+2. `header.md` (converted to HTML)
+3. **Your page content**
+4. `footer.md` (converted to HTML)
+5. `footer.html`
+
+### Using Templates
+
+**Default behavior** - uses `templates/default/`:
+```yaml
+---
+name: "My Page"
+# Automatically uses templates/default/
+---
+```
+
+**Choose different template set:**
+```yaml
+---
+name: "Special Page"
+template: "fancy"         # Uses templates/fancy/
+---
+```
+
+**Skip templates for a page:**
+```yaml
+---
+name: "Plain Page"
+template: null            # No template wrapping
+---
+```
+
+### Example Template Files
+
+**templates/default/header.md:**
+```markdown
+# Course Header
+
+**Important:** All assignments due by midnight.
+```
+
+**templates/default/footer.md:**
+```markdown
+---
+
+Questions? Email your instructor.
+```
 
 ---
 
