@@ -25,6 +25,8 @@ from abc import ABC, abstractmethod
 import markdown
 from canvasapi.course import Course
 
+from zaphod.security_utils import is_safe_path
+
 
 # ============================================================================
 # Template System
@@ -59,8 +61,28 @@ def load_template_files(course_root: Path, template_name: str = "default") -> Di
     Returns:
         Dict with keys: header_html, header_md, footer_md, footer_html
         Values are file contents or empty string if file doesn't exist
+
+    Security:
+        Validates template_name to prevent path traversal attacks.
+        Only reads files within course_root/templates/ directory.
     """
-    templates_dir = course_root / "templates" / template_name
+    # SECURITY: Validate template name to prevent path traversal
+    # Reject names with path separators or parent directory references
+    if not template_name or not isinstance(template_name, str):
+        template_name = "default"
+
+    # Sanitize: only allow alphanumeric, hyphens, underscores
+    if not all(c.isalnum() or c in ('-', '_') for c in template_name):
+        # Invalid characters - fall back to default
+        template_name = "default"
+
+    templates_base = course_root / "templates"
+    templates_dir = templates_base / template_name
+
+    # SECURITY: Verify resolved path is within templates directory
+    if not is_safe_path(templates_base, templates_dir):
+        # Path traversal attempt detected - use default
+        templates_dir = templates_base / "default"
 
     template_files = {
         "header_html": templates_dir / "header.html",
@@ -71,6 +93,11 @@ def load_template_files(course_root: Path, template_name: str = "default") -> Di
 
     loaded = {}
     for key, path in template_files.items():
+        # SECURITY: Double-check each file is within templates directory
+        if not is_safe_path(templates_base, path):
+            loaded[key] = ""
+            continue
+
         if path.exists():
             try:
                 loaded[key] = path.read_text(encoding="utf-8")
